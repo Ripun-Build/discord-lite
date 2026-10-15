@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+
+# Gradle / Android
+.gradle/
+build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+output-metadata.json
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Kotlin
+.kotlin/
+
+# Secrets — never commit
+*.jks
+*.keystore
+keystore.properties
+google-services.json
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
