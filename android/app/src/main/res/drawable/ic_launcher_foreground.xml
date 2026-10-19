@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chat bubble with a gradient fill, centred in the 72dp adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M54,32C40.2,32 29,41.4 29,53C29,59.2 32.2,64.8 37.3,68.6L35,78L45.2,72.6C48,73.5 50.9,74 54,74C67.8,74 79,64.6 79,53C79,41.4 67.8,32 54,32Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="29"
+                android:startY="32"
+                android:endX="79"
+                android:endY="78">
+                <item android:offset="0" android:color="#FF5865F2" />
+                <item android:offset="0.55" android:color="#FF9B5CFF" />
+                <item android:offset="1" android:color="#FFFF4FA3" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M44,49a4,4 0,1 0,8 0a4,4 0,1 0,-8 0M56,49a4,4 0,1 0,8 0a4,4 0,1 0,-8 0M45,58C47.5,61.5 50.5,63 54,63C57.5,63 60.5,61.5 63,58" />
+</vector>
