@@ -11,6 +11,9 @@ Status: Phase 0 — project setup.
 ## Repo layout
 
 ```
+android/              Android app (Kotlin, Jetpack Compose)
+  core/designsystem/  Theme, spring motion tokens, glass, components
+  app/                Screens, navigation, sample data (until the backend is wired up)
 server/               Ktor backend (Kotlin, Gradle)
 docker-compose.yml    Local Postgres, Redis and S3-compatible storage (SeaweedFS)
 .github/workflows/    CI
@@ -28,3 +31,11 @@ curl localhost:8080/health
 ```
 
 Run tests: `cd server && ./gradlew test`
+
+Android app (open `android/` in Android Studio, or):
+
+```bash
+cd android && ./gradlew :app:installDebug   # needs a running emulator or connected device
+```
+
+The UI currently runs on sample data — sign-in accepts any email/password and any 6-digit code.
