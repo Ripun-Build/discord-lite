@@ -56,6 +56,8 @@ import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.discordlite.app.data.LocalAppContainer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -349,19 +351,21 @@ private fun BubbleMessage(message: Message, firstOfGroup: Boolean, lastOfGroup: 
 @Composable
 private fun ChannelMessage(message: Message, firstOfGroup: Boolean) {
     val colors = DlTheme.colors
-    val author = SampleData.user(message.authorId)
+    val me by LocalAppContainer.current.account.me.collectAsStateWithLifecycle()
+    // Your own messages use your real display name; everyone else is still sample data until Phase 4.
+    val authorName = if (message.authorId == ME) me?.displayName ?: SampleData.me.name else SampleData.user(message.authorId).name
     Row(
         Modifier
             .fillMaxWidth()
             .pressable(pressedScale = 1f, highlight = colors.textPrimary.copy(alpha = 0.05f)) {}
             .padding(start = 16.dp, end = 16.dp, top = if (firstOfGroup) 14.dp else 2.dp, bottom = 2.dp),
     ) {
-        if (firstOfGroup) Avatar(author.name, 40.dp) else Spacer(Modifier.width(40.dp))
+        if (firstOfGroup) Avatar(authorName, 40.dp) else Spacer(Modifier.width(40.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             if (firstOfGroup) {
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(author.name, style = DlTheme.type.headline, color = gradientFor(author.name)[0].let { if (colors.isDark) it else it.copy(alpha = 1f) })
+                    Text(authorName, style = DlTheme.type.headline, color = gradientFor(authorName)[0])
                     Spacer(Modifier.width(8.dp))
                     Text("Today at ${message.time}", style = DlTheme.type.caption, color = colors.textTertiary, modifier = Modifier.padding(bottom = 1.dp))
                 }
