@@ -9,7 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import com.discordlite.app.data.AppSettings
+import com.discordlite.app.data.LocalAppContainer
 import com.discordlite.app.data.LocalAppSettings
 import com.discordlite.app.data.ThemeMode
 import com.discordlite.app.navigation.AppNavHost
@@ -19,7 +19,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val settings = AppSettings(applicationContext)
+        val container = (application as DiscordLiteApp).container
+        val settings = container.settings
         setContent {
             val dark = when (settings.themeMode) {
                 ThemeMode.System -> isSystemInDarkTheme()
@@ -36,7 +37,7 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
                 onDispose {}
             }
-            CompositionLocalProvider(LocalAppSettings provides settings) {
+            CompositionLocalProvider(LocalAppSettings provides settings, LocalAppContainer provides container) {
                 DlTheme(darkTheme = dark) {
                     AppNavHost()
                 }

@@ -59,6 +59,11 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import com.discordlite.app.data.remote.DmPolicy
+import com.discordlite.app.data.LocalAppContainer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -90,9 +95,14 @@ import com.discordlite.designsystem.theme.DlTheme
 import com.discordlite.designsystem.theme.rememberHaptics
 
 @Composable
-fun ProfileScreen(onOpenSettings: () -> Unit) {
+fun ProfileScreen(onOpenSettings: () -> Unit, onEditProfile: () -> Unit) {
     val colors = DlTheme.colors
-    val me = SampleData.me
+    val container = LocalAppContainer.current
+    val account by container.account.me.collectAsStateWithLifecycle()
+    val friends by container.social.friends.collectAsStateWithLifecycle()
+    val displayName = account?.displayName ?: SampleData.me.name
+    val username = account?.username ?: SampleData.me.username
+    val bio = account?.bio.orEmpty()
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
     LazyVerticalGrid(
@@ -120,22 +130,26 @@ fun ProfileScreen(onOpenSettings: () -> Unit) {
                             // A background (not a border) so the ring sits behind the presence dot.
                             .background(colors.background, CircleShape)
                             .padding(4.dp),
-                    ) { Avatar(me.name, 92.dp, online = true) }
+                    ) { Avatar(displayName, 92.dp, online = true) }
                 }
                 Spacer(Modifier.height(52.dp))
                 Column(Modifier.padding(horizontal = 20.dp)) {
-                    Text(me.name, style = DlTheme.type.title1, color = colors.textPrimary)
-                    Text("@${me.username}", style = DlTheme.type.callout, color = colors.textSecondary)
+                    Text(displayName, style = DlTheme.type.title1, color = colors.textPrimary)
+                    Text("@$username", style = DlTheme.type.callout, color = colors.textSecondary)
                     Spacer(Modifier.height(10.dp))
-                    Text("Valorant · Minecraft · building discord-lite 🛠️", style = DlTheme.type.callout, color = colors.textPrimary)
+                    Text(
+                        bio.ifBlank { "Add a bio so friends know what you play." },
+                        style = DlTheme.type.callout,
+                        color = if (bio.isBlank()) colors.textTertiary else colors.textPrimary,
+                    )
                     Spacer(Modifier.height(18.dp))
                     Row(Modifier.fillMaxWidth()) {
                         Stat("24", "Posts", Modifier.weight(1f))
+                        Stat(friends.friends.size.toString(), "Friends", Modifier.weight(1f))
                         Stat("1.2K", "Followers", Modifier.weight(1f))
-                        Stat("180", "Following", Modifier.weight(1f))
                     }
                     Spacer(Modifier.height(18.dp))
-                    SecondaryButton("Edit profile", onClick = {}, modifier = Modifier.fillMaxWidth(), height = 44.dp)
+                    SecondaryButton("Edit profile", onClick = onEditProfile, modifier = Modifier.fillMaxWidth(), height = 44.dp)
                     Spacer(Modifier.height(18.dp))
                     SegmentedControl(listOf("Posts", "Reels", "Tagged"), tab, { tab = it })
                     Spacer(Modifier.height(12.dp))
@@ -177,7 +191,11 @@ fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
     val colors = DlTheme.colors
     val settings = LocalAppSettings.current
     val haptics = rememberHaptics()
-    var dmSetting by rememberSaveable { mutableIntStateOf(1) }
+    val container = LocalAppContainer.current
+    val me by container.account.me.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    // Shown immediately on tap; saved to the server in the background (reverts if that fails).
+    var dmSetting by rememberSaveable(me?.dmPolicy) { mutableIntStateOf(me?.dmPolicy?.ordinal ?: 1) }
     var appLock by rememberSaveable { mutableStateOf(false) }
     var hideNotifications by rememberSaveable { mutableStateOf(false) }
     var blockScreenshots by rememberSaveable { mutableStateOf(true) }
@@ -217,8 +235,15 @@ fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
                                 Modifier
                                     .fillMaxWidth()
                                     .pressable(pressedScale = 0.99f, highlight = colors.textPrimary.copy(alpha = 0.06f)) {
-                                        if (dmSetting != i) haptics.selection()
-                                        dmSetting = i
+                                        if (dmSetting != i) {
+                                            haptics.selection()
+                                            val previous = dmSetting
+                                            dmSetting = i
+                                            scope.launch {
+                                                runCatching { container.account.updateProfile(dmPolicy = DmPolicy.entries[i]) }
+                                                    .onFailure { dmSetting = previous }
+                                            }
+                                        }
                                     }
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -266,7 +291,7 @@ fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
             item {
                 SectionCard {
                     Column {
-                        NavRow(Icons.Rounded.Mail, Color(0xFF0A84FF), "Email", "you@example.com")
+                        NavRow(Icons.Rounded.Mail, Color(0xFF0A84FF), "Email", me?.email ?: "—")
                         Divider(inset = 60.dp)
                         NavRow(Icons.Rounded.Key, Color(0xFF8E8E93), "Change password", null)
                         Divider(inset = 60.dp)

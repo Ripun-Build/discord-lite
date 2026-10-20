@@ -1,6 +1,15 @@
 package com.discordlite.app.ui.auth
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.material.icons.rounded.Pin
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import com.discordlite.designsystem.component.pressable
+import com.discordlite.app.ui.common.ErrorBanner
+import com.discordlite.app.data.LocalAppContainer
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
@@ -206,34 +215,37 @@ private val EmailRegex = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$")
 private val UsernameRegex = Regex("^[a-z0-9._]{3,20}$")
 
 @Composable
-fun SignUpScreen(onBack: () -> Unit, onContinue: (email: String) -> Unit) {
+fun SignUpScreen(onBack: () -> Unit, onCodeSent: (email: String) -> Unit) {
+    val container = LocalAppContainer.current
+    val vm: SignUpViewModel = viewModel { SignUpViewModel(container.account) }
     var email by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
     val emailValid = EmailRegex.matches(email)
     val usernameValid = UsernameRegex.matches(username)
     val passwordValid = password.length >= 8
     val emailError = if (email.length > 4 && !emailValid && email.contains('@')) "Enter a valid email address" else null
     val usernameError = when {
+        vm.usernameTaken -> "@$username is already taken"
         username.isEmpty() -> null
         username.any { !(it.isLowerCase() || it.isDigit() || it == '.' || it == '_') } -> "Use lowercase letters, numbers, . and _"
         username.length < 3 -> "At least 3 characters"
         else -> null
     }
 
-    AuthFrame("Create your account", "Sign up with your email. You can change your username later.", onBack) {
+    AuthFrame("Create your account", "Sign up with your email. You can change your display name any time.", onBack) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             DlTextField(
-                value = email, onValueChange = { email = it.trim() }, placeholder = "you@example.com", label = "Email",
+                value = email, onValueChange = { email = it.trim(); vm.clearError() }, placeholder = "you@example.com", label = "Email",
                 leadingIcon = Icons.Rounded.Mail, error = emailError,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                 modifier = Modifier.entrance(2, baseDelayMs = 0),
             )
             DlTextField(
-                value = username, onValueChange = { username = it.lowercase().take(20) }, placeholder = "username", label = "Username",
+                value = username,
+                onValueChange = { username = it.lowercase().take(20); vm.usernameEdited() },
+                placeholder = "username", label = "Username",
                 leadingIcon = Icons.Rounded.AlternateEmail, error = usernameError,
                 hint = if (usernameValid) "Friends will find you as @$username" else null,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
@@ -248,19 +260,14 @@ fun SignUpScreen(onBack: () -> Unit, onContinue: (email: String) -> Unit) {
                 StrengthMeter(password)
             }
         }
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(16.dp))
+        ErrorBanner(vm.error.takeUnless { vm.usernameTaken }, vm.errorTick)
+        Spacer(Modifier.height(12.dp))
         PrimaryButton(
             text = "Continue",
-            enabled = emailValid && usernameValid && passwordValid,
-            loading = loading,
-            onClick = {
-                loading = true
-                scope.launch {
-                    delay(900) // placeholder for the real sign-up request
-                    loading = false
-                    onContinue(email)
-                }
-            },
+            enabled = emailValid && usernameValid && passwordValid && !vm.usernameTaken,
+            loading = vm.busy,
+            onClick = { vm.submit(email, username, password, onCodeSent) },
             modifier = Modifier.entrance(5, baseDelayMs = 0),
         )
         Spacer(Modifier.height(16.dp))
@@ -308,32 +315,30 @@ private fun StrengthMeter(password: String) {
 fun VerifyEmailScreen(email: String, onBack: () -> Unit, onVerified: () -> Unit) {
     val colors = DlTheme.colors
     val haptics = rememberHaptics()
+    val container = LocalAppContainer.current
+    val vm: VerifyEmailViewModel = viewModel { VerifyEmailViewModel(container.account) }
     var code by rememberSaveable { mutableStateOf("") }
-    var verifying by remember { mutableStateOf(false) }
-    var seconds by remember { mutableIntStateOf(30) }
     val focus = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { focus.requestFocus() }
-    LaunchedEffect(seconds) {
-        if (seconds > 0) {
-            delay(1000)
-            seconds--
-        }
-    }
+    // Six digits typed: check it straight away, no extra button.
     LaunchedEffect(code) {
         if (code.length == 6) {
-            haptics.confirm()
-            verifying = true
-            delay(700) // placeholder: the server checks the code in Phase 1
-            onVerified()
+            haptics.tick()
+            vm.verify(email, code) {
+                haptics.confirm()
+                onVerified()
+            }
         }
     }
+    // A wrong code clears the boxes so they can type again.
+    LaunchedEffect(vm.errorTick) { if (vm.errorTick > 0) code = "" }
 
     AuthFrame("Check your inbox", "Enter the 6-digit code we sent to $email", onBack) {
         Box(Modifier.entrance(2, baseDelayMs = 0)) {
             BasicTextField(
                 value = code,
-                onValueChange = { new -> if (!verifying) code = new.filter { it.isDigit() }.take(6) },
+                onValueChange = { new -> if (!vm.busy) { code = new.filter { it.isDigit() }.take(6); vm.clearError() } },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions.Default,
                 cursorBrush = SolidColor(Color.Transparent),
@@ -341,23 +346,37 @@ fun VerifyEmailScreen(email: String, onBack: () -> Unit, onVerified: () -> Unit)
                 modifier = Modifier.matchParentSize().focusRequester(focus),
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                repeat(6) { i -> CodeBox(digit = code.getOrNull(i), active = i == code.length && !verifying, modifier = Modifier.weight(1f)) }
+                repeat(6) { i -> CodeBox(digit = code.getOrNull(i), active = i == code.length && !vm.busy, modifier = Modifier.weight(1f)) }
             }
         }
-        Spacer(Modifier.height(28.dp))
-        AnimatedContent(targetState = verifying, label = "verifying") { busy ->
+        Spacer(Modifier.height(16.dp))
+        ErrorBanner(vm.error, vm.errorTick)
+        Spacer(Modifier.height(12.dp))
+        AnimatedContent(targetState = vm.busy, label = "verifying") { busy ->
             if (busy) {
                 PrimaryButton("Verifying", onClick = {}, loading = true)
             } else {
+                val ready = vm.resendIn == 0
                 Text(
-                    if (seconds > 0) "Resend code in 0:${"%02d".format(seconds)}" else "Resend code",
+                    if (ready) "Resend code" else "Resend code in 0:${"%02d".format(vm.resendIn)}",
                     style = DlTheme.type.callout,
-                    color = if (seconds > 0) colors.textTertiary else colors.accent,
+                    color = if (ready) colors.accent else colors.textTertiary,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressable(enabled = ready, pressedScale = 0.96f) { vm.resend(email) }
+                        .padding(vertical = 8.dp),
                 )
             }
         }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Can't find it? Check your spam folder.",
+            style = DlTheme.type.footnote,
+            color = colors.textTertiary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -386,43 +405,116 @@ private fun CodeBox(digit: Char?, active: Boolean, modifier: Modifier = Modifier
 }
 
 @Composable
-fun SignInScreen(onBack: () -> Unit, onSignedIn: () -> Unit) {
+fun SignInScreen(
+    onBack: () -> Unit,
+    onSignedIn: () -> Unit,
+    onNeedsVerification: (email: String) -> Unit,
+    onForgotPassword: (email: String) -> Unit,
+    notice: String? = null,
+) {
+    val container = LocalAppContainer.current
+    val vm: SignInViewModel = viewModel { SignInViewModel(container.account) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     val valid = EmailRegex.matches(email) && password.isNotEmpty()
 
-    AuthFrame("Welcome back", "Sign in with the email you used to sign up.", onBack) {
+    AuthFrame("Welcome back", notice ?: "Sign in with the email you used to sign up.", onBack) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             DlTextField(
-                value = email, onValueChange = { email = it.trim() }, placeholder = "you@example.com", label = "Email",
+                value = email, onValueChange = { email = it.trim(); vm.clearError() }, placeholder = "you@example.com", label = "Email",
                 leadingIcon = Icons.Rounded.Mail,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                 modifier = Modifier.entrance(2, baseDelayMs = 0),
             )
             DlTextField(
-                value = password, onValueChange = { password = it }, placeholder = "Password", label = "Password",
+                value = password, onValueChange = { password = it; vm.clearError() }, placeholder = "Password", label = "Password",
                 leadingIcon = Icons.Rounded.Key, password = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                 modifier = Modifier.entrance(3, baseDelayMs = 0),
             )
         }
         Spacer(Modifier.height(12.dp))
-        TextAction("Forgot password?", onClick = {}, modifier = Modifier.align(Alignment.End).padding(vertical = 6.dp))
-        Spacer(Modifier.height(20.dp))
+        TextAction("Forgot password?", onClick = { onForgotPassword(email) }, modifier = Modifier.align(Alignment.End).padding(vertical = 6.dp))
+        Spacer(Modifier.height(12.dp))
+        ErrorBanner(vm.error, vm.errorTick)
+        Spacer(Modifier.height(12.dp))
         PrimaryButton(
             text = "Sign in",
             enabled = valid,
-            loading = loading,
-            onClick = {
-                loading = true
-                scope.launch {
-                    delay(900)
-                    onSignedIn()
-                }
-            },
+            loading = vm.busy,
+            onClick = { vm.submit(email, password, onSignedIn, onNeedsVerification) },
             modifier = Modifier.entrance(4, baseDelayMs = 0),
         )
+    }
+}
+
+/**
+ * Two steps on one screen: send a code to your email, then enter it with a new password. The
+ * second step slides in from the right and slides back out the same way if you change the email.
+ */
+@Composable
+fun ResetPasswordScreen(initialEmail: String, onBack: () -> Unit, onDone: () -> Unit) {
+    val container = LocalAppContainer.current
+    val vm: ResetPasswordViewModel = viewModel { ResetPasswordViewModel(container.account) }
+    var email by rememberSaveable { mutableStateOf(initialEmail) }
+    var code by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+
+    AuthFrame(
+        title = if (vm.codeSent) "Choose a new password" else "Reset your password",
+        subtitle = if (vm.codeSent) "Enter the code we sent to $email and a new password." else "We'll email you a 6-digit code.",
+        onBack = onBack,
+    ) {
+        AnimatedContent(
+            targetState = vm.codeSent,
+            transitionSpec = {
+                val dir = if (targetState) 1 else -1
+                (slideInHorizontally(DlMotion.smooth(IntOffset.VisibilityThreshold)) { it * dir } + fadeIn(DlMotion.smooth())) togetherWith
+                    (slideOutHorizontally(DlMotion.smooth(IntOffset.VisibilityThreshold)) { -it * dir } + fadeOut(DlMotion.smooth()))
+            },
+            label = "resetStep",
+        ) { codeStep ->
+            Column {
+                if (!codeStep) {
+                    DlTextField(
+                        value = email, onValueChange = { email = it.trim(); vm.clearError() }, placeholder = "you@example.com", label = "Email",
+                        leadingIcon = Icons.Rounded.Mail,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    ErrorBanner(vm.error, vm.errorTick)
+                    Spacer(Modifier.height(12.dp))
+                    PrimaryButton("Send code", onClick = { vm.sendCode(email) }, enabled = EmailRegex.matches(email), loading = vm.busy)
+                } else {
+                    DlTextField(
+                        value = code, onValueChange = { new -> code = new.filter { it.isDigit() }.take(6); vm.clearError() },
+                        placeholder = "6-digit code", label = "Code", leadingIcon = Icons.Rounded.Pin,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Next),
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    DlTextField(
+                        value = password, onValueChange = { password = it; vm.clearError() }, placeholder = "At least 8 characters",
+                        label = "New password", leadingIcon = Icons.Rounded.Key, password = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    )
+                    StrengthMeter(password)
+                    Spacer(Modifier.height(16.dp))
+                    ErrorBanner(vm.error, vm.errorTick)
+                    Spacer(Modifier.height(12.dp))
+                    PrimaryButton(
+                        "Reset password",
+                        onClick = { vm.reset(email, code, password, onDone) },
+                        enabled = code.length == 6 && password.length >= 8,
+                        loading = vm.busy,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TextAction(
+                        "Use a different email",
+                        onClick = { vm.changeEmail(); code = "" },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    )
+                }
+            }
+        }
     }
 }

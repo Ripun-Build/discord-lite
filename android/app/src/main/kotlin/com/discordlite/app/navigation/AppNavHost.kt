@@ -9,6 +9,16 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.launch
+import com.discordlite.app.ui.profile.EditProfileScreen
+import com.discordlite.app.ui.friends.FriendsScreen
+import com.discordlite.app.ui.auth.ResetPasswordScreen
+import com.discordlite.app.data.LocalAppContainer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.navigation.NavBackStackEntry
@@ -31,12 +41,15 @@ import kotlinx.serialization.Serializable
 
 @Serializable object WelcomeRoute
 @Serializable object SignUpRoute
-@Serializable object SignInRoute
+@Serializable data class SignInRoute(val sessionExpired: Boolean = false)
+@Serializable data class ResetPasswordRoute(val email: String)
 @Serializable data class VerifyRoute(val email: String)
 @Serializable object HomeRoute
 @Serializable data class ConversationRoute(val chatId: String)
 @Serializable data class ChannelRoute(val serverId: String, val channelId: String)
 @Serializable object SettingsRoute
+@Serializable object FriendsRoute
+@Serializable object EditProfileRoute
 
 private typealias Enter = AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition
 private typealias Exit = AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition
@@ -49,6 +62,8 @@ private typealias Exit = AnimatedContentTransitionScope<NavBackStackEntry>.() ->
  */
 @Composable
 fun AppNavHost(navController: NavHostController = rememberNavController()) {
+    val container = LocalAppContainer.current
+    val scope = rememberCoroutineScope()
     val reduced = DlTheme.reducedMotion
     val slide = DlMotion.spring<IntOffset>(1f, 0.42f, IntOffset.VisibilityThreshold)
     val fade = DlMotion.smooth<Float>()
@@ -58,9 +73,21 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
     val popEnter: Enter = { if (reduced) fadeIn(fade) else slideInHorizontally(slide) { -it / 4 } + fadeIn(fade, initialAlpha = 0.7f) }
     val popExit: Exit = { if (reduced) fadeOut(fade) else slideOutHorizontally(slide) { it } }
 
+    // Signed in already? Open straight into the app.
+    val start: Any = remember { if (container.account.isSignedIn) HomeRoute else WelcomeRoute }
+
+    // If the server stops accepting our session (expired, or signed out elsewhere), go to sign-in.
+    val session by container.account.session.collectAsStateWithLifecycle()
+    LaunchedEffect(session) {
+        if (session == null && container.account.sessionExpired) {
+            container.social.clear()
+            navController.navigate(SignInRoute(sessionExpired = true)) { popUpTo(navController.graph.id) { inclusive = true } }
+        }
+    }
+
     NavHost(
         navController = navController,
-        startDestination = WelcomeRoute,
+        startDestination = start,
         enterTransition = enter,
         exitTransition = exit,
         popEnterTransition = popEnter,
@@ -69,11 +96,11 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         composable<WelcomeRoute> {
             WelcomeScreen(
                 onCreateAccount = { navController.navigate(SignUpRoute) },
-                onSignIn = { navController.navigate(SignInRoute) },
+                onSignIn = { navController.navigate(SignInRoute()) },
             )
         }
         composable<SignUpRoute> {
-            SignUpScreen(onBack = navController::popBackStack, onContinue = { navController.navigate(VerifyRoute(it)) })
+            SignUpScreen(onBack = navController::popBackStack, onCodeSent = { navController.navigate(VerifyRoute(it)) })
         }
         composable<VerifyRoute> { entry ->
             VerifyEmailScreen(
@@ -82,17 +109,39 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onVerified = { navController.enterHome() },
             )
         }
-        composable<SignInRoute> {
-            SignInScreen(onBack = navController::popBackStack, onSignedIn = { navController.enterHome() })
+        composable<SignInRoute> { entry ->
+            val route = entry.toRoute<SignInRoute>()
+            SignInScreen(
+                onBack = {
+                    if (!navController.popBackStack()) navController.navigate(WelcomeRoute) { popUpTo(navController.graph.id) { inclusive = true } }
+                },
+                onSignedIn = { navController.enterHome() },
+                onNeedsVerification = { navController.navigate(VerifyRoute(it)) },
+                onForgotPassword = { navController.navigate(ResetPasswordRoute(it)) },
+                notice = if (route.sessionExpired) "You were signed out. Sign in again to continue." else null,
+            )
+        }
+        composable<ResetPasswordRoute> { entry ->
+            ResetPasswordScreen(
+                initialEmail = entry.toRoute<ResetPasswordRoute>().email,
+                onBack = navController::popBackStack,
+                onDone = { navController.enterHome() },
+            )
         }
         composable<HomeRoute>(
             // Arriving after sign-in: the app "opens up" rather than sliding sideways.
             enterTransition = { if (initialState.destination.route?.contains("Home") == true) enter() else fadeIn(fade) + scaleIn(DlMotion.smooth(), initialScale = 0.94f) },
         ) {
+            LaunchedEffect(Unit) {
+                runCatching { container.account.loadMe() }
+                runCatching { container.social.refresh() }
+            }
             HomeScreen(
                 onOpenChat = { navController.navigate(ConversationRoute(it)) },
                 onOpenChannel = { server, channel -> navController.navigate(ChannelRoute(server, channel)) },
                 onOpenSettings = { navController.navigate(SettingsRoute) },
+                onOpenFriends = { navController.navigate(FriendsRoute) },
+                onEditProfile = { navController.navigate(EditProfileRoute) },
             )
         }
         composable<ConversationRoute> { entry ->
@@ -102,11 +151,21 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             val route = entry.toRoute<ChannelRoute>()
             ChannelScreen(route.serverId, route.channelId, onBack = navController::popBackStack)
         }
+        composable<FriendsRoute> {
+            FriendsScreen(onBack = navController::popBackStack)
+        }
+        composable<EditProfileRoute> {
+            EditProfileScreen(onBack = navController::popBackStack)
+        }
         composable<SettingsRoute> {
             SettingsScreen(
                 onBack = navController::popBackStack,
                 onSignOut = {
-                    navController.navigate(WelcomeRoute) { popUpTo(0) { inclusive = true } }
+                    scope.launch {
+                        container.account.signOut()
+                        container.social.clear()
+                        navController.navigate(WelcomeRoute) { popUpTo(navController.graph.id) { inclusive = true } }
+                    }
                 },
             )
         }
@@ -114,5 +173,5 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
 }
 
 private fun NavHostController.enterHome() {
-    navigate(HomeRoute) { popUpTo(WelcomeRoute) { inclusive = true } }
+    navigate(HomeRoute) { popUpTo(graph.id) { inclusive = true } }
 }
