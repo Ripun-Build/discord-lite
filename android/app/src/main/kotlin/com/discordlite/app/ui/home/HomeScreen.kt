@@ -57,6 +57,8 @@ fun HomeScreen(
     onOpenChat: (String) -> Unit,
     onOpenChannel: (String, String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenFriends: () -> Unit,
+    onEditProfile: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var sheet by remember { mutableStateOf<HomeSheet?>(null) }
@@ -70,10 +72,10 @@ fun HomeScreen(
         Box(Modifier.fillMaxSize().hazeSource(hazeState)) {
             holder.SaveableStateProvider(tab) {
                 when (tab) {
-                    0 -> ChatsScreen(onOpenChat = onOpenChat, onNewChat = { sheet = HomeSheet.NewChat })
+                    0 -> ChatsScreen(onOpenChat = onOpenChat, onNewChat = { sheet = HomeSheet.NewChat }, onOpenFriends = onOpenFriends)
                     1 -> ServersScreen(onOpenChannel = onOpenChannel, onInvite = { sheet = HomeSheet.Invite(it) })
                     2 -> FeedScreen()
-                    else -> ProfileScreen(onOpenSettings = onOpenSettings)
+                    else -> ProfileScreen(onOpenSettings = onOpenSettings, onEditProfile = onEditProfile)
                 }
             }
         }

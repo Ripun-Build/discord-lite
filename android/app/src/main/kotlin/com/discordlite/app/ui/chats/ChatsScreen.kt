@@ -25,6 +25,10 @@ import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.offset
+import com.discordlite.app.data.LocalAppContainer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,11 +48,22 @@ import com.discordlite.designsystem.component.pressable
 import com.discordlite.designsystem.theme.DlTheme
 
 @Composable
-fun ChatsScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit) {
+fun ChatsScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onOpenFriends: () -> Unit) {
     val colors = DlTheme.colors
+    val container = LocalAppContainer.current
+    val me by container.account.me.collectAsStateWithLifecycle()
+    val friends by container.social.friends.collectAsStateWithLifecycle()
     LargeTitleScreen(
         title = "Chats",
-        actions = { IconCircleButton(Icons.Rounded.Edit, "New message", onNewChat, size = 38.dp) },
+        actions = {
+            Box {
+                IconCircleButton(Icons.Rounded.Group, "Friends", onOpenFriends, size = 38.dp)
+                if (friends.incoming.isNotEmpty()) {
+                    Badge(friends.incoming.size, Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-4).dp))
+                }
+            }
+            IconCircleButton(Icons.Rounded.Edit, "New message", onNewChat, size = 38.dp)
+        },
     ) {
         item(key = "search") { SearchField("Search chats", Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
         item(key = "stories") {
@@ -56,7 +71,7 @@ fun ChatsScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit) {
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                item { StoryAvatar(SampleData.me.name, "Your story", seen = true, index = 0, isYou = true, onClick = {}) }
+                item { StoryAvatar(me?.displayName ?: SampleData.me.name, "Your story", seen = true, index = 0, isYou = true, onClick = {}) }
                 itemsIndexed(SampleData.stories, key = { _, s -> s.user.id }) { i, story ->
                     StoryAvatar(story.user.name, story.user.name.substringBefore(' '), story.seen, index = i + 1, onClick = {})
                 }

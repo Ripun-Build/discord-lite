@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +65,9 @@ fun DlTextField(
     error: String? = null,
     hint: String? = null,
     password: Boolean = false,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    readOnly: Boolean = false,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
 ) {
@@ -91,14 +95,14 @@ fun DlTextField(
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(54.dp)
+                .heightIn(min = 54.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(if (colors.isDark) colors.surfaceRaised else colors.surface)
                 .border(borderWidth, borderColor, RoundedCornerShape(16.dp))
                 // The whole field is the target, not just the text run.
                 .clickable(interactionSource = null, indication = null) { focusRequester.requestFocus() }
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 16.dp, vertical = if (singleLine) 0.dp else 15.dp),
+            verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (leadingIcon != null) {
@@ -114,7 +118,10 @@ fun DlTextField(
                 BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
-                    singleLine = true,
+                    singleLine = singleLine,
+                    readOnly = readOnly,
+                    minLines = minLines,
+                    maxLines = if (singleLine) 1 else 6,
                     textStyle = type.body.copy(color = colors.textPrimary),
                     cursorBrush = SolidColor(colors.accent),
                     interactionSource = interaction,

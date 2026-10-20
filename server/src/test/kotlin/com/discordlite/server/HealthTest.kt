@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 class HealthTest {
     @Test
     fun `health returns ok`() = testApplication {
-        application { module() }
+        startApp()
         val response = client.get("/health")
         assertEquals(HttpStatusCode.OK, response.status)
         assertTrue(response.bodyAsText().contains("\"status\":\"ok\""))
@@ -19,7 +19,7 @@ class HealthTest {
 
     @Test
     fun `unknown route returns json 404`() = testApplication {
-        application { module() }
+        startApp()
         val response = client.get("/does-not-exist")
         assertEquals(HttpStatusCode.NotFound, response.status)
         assertEquals("{\"error\":\"not_found\"}", response.bodyAsText())
