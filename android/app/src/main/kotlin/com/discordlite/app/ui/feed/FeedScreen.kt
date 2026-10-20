@@ -63,6 +63,7 @@ import com.discordlite.designsystem.component.Avatar
 import com.discordlite.designsystem.component.GameTag
 import com.discordlite.designsystem.component.IconCircleButton
 import com.discordlite.designsystem.component.LargeTitleScreen
+import com.discordlite.designsystem.component.LiquidPageIndicator
 import com.discordlite.designsystem.component.pressable
 import com.discordlite.designsystem.theme.DlMotion
 import com.discordlite.designsystem.theme.DlTheme
@@ -166,20 +167,11 @@ private fun PostCard(post: Post) {
                         .background(Color.Black.copy(alpha = 0.4f), CircleShape)
                         .padding(horizontal = 9.dp, vertical = 3.dp),
                 )
-                Row(
-                    Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    repeat(post.slides) { i ->
-                        val w by animateDpAsState(if (pager.currentPage == i) 18.dp else 6.dp, DlMotion.snappy(), label = "dot")
-                        Box(
-                            Modifier
-                                .height(6.dp)
-                                .width(w)
-                                .background(Color.White.copy(alpha = if (pager.currentPage == i) 0.95f else 0.5f), CircleShape),
-                        )
-                    }
-                }
+                LiquidPageIndicator(
+                    count = post.slides,
+                    position = { pager.currentPage + pager.currentPageOffsetFraction },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
+                )
             }
         }
 

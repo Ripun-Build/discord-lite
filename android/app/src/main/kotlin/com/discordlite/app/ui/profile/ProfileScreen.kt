@@ -1,5 +1,15 @@
 package com.discordlite.app.ui.profile
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.discordlite.app.data.LocalAppSettings
+import com.discordlite.app.data.ThemeMode
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -98,6 +108,7 @@ fun ProfileScreen(onOpenSettings: () -> Unit) {
                     Box(Modifier.matchParentSize().background(Brush.linearGradient(colors.accentGradient)))
                     Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to colors.background)))
                     Row(Modifier.statusBarsPadding().padding(12.dp).align(Alignment.TopEnd), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ThemeToggle()
                         IconCircleButton(Icons.Rounded.Share, "Share profile", {}, size = 38.dp)
                         IconCircleButton(Icons.Rounded.Settings, "Settings and privacy", onOpenSettings, size = 38.dp)
                     }
@@ -164,6 +175,7 @@ private val DmOptions = listOf(
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
     val colors = DlTheme.colors
+    val settings = LocalAppSettings.current
     val haptics = rememberHaptics()
     var dmSetting by rememberSaveable { mutableIntStateOf(1) }
     var appLock by rememberSaveable { mutableStateOf(false) }
@@ -180,6 +192,22 @@ fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
         },
     ) {
         LazyColumn(contentPadding = PaddingValues(top = top, bottom = 40.dp)) {
+            item { SectionHeader("Appearance") }
+            item {
+                SectionCard {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                        Text("Theme", style = DlTheme.type.body, color = colors.textPrimary)
+                        Spacer(Modifier.height(10.dp))
+                        SegmentedControl(
+                            options = ThemeMode.entries.map { it.label },
+                            selected = settings.themeMode.ordinal,
+                            onSelect = { settings.updateThemeMode(ThemeMode.entries[it]) },
+                        )
+                    }
+                }
+            }
+            item { SectionFooter("System follows your phone's dark theme setting.") }
+
             item { SectionHeader("Who can send you DMs") }
             item {
                 SectionCard {
@@ -326,5 +354,46 @@ private fun NavRow(icon: ImageVector, tint: Color, title: String, subtitle: Stri
             if (subtitle != null) Text(subtitle, style = DlTheme.type.footnote, color = colors.textSecondary)
         }
         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = colors.textTertiary)
+    }
+}
+
+/**
+ * Quick light/dark switch. The sun and moon swap with a spin and a pop from the button's centre,
+ * and the whole app eases into the new palette.
+ */
+@Composable
+private fun ThemeToggle() {
+    val settings = LocalAppSettings.current
+    val colors = DlTheme.colors
+    val haptics = rememberHaptics()
+    val dark = colors.isDark
+    val spin by animateFloatAsState(if (dark) 0f else 180f, DlMotion.spring(0.7f, 0.55f), label = "spin")
+    Box(
+        Modifier
+            .size(38.dp)
+            .pressable(pressedScale = 0.88f) {
+                haptics.confirm()
+                settings.updateThemeMode(if (dark) ThemeMode.Light else ThemeMode.Dark)
+            }
+            .clip(CircleShape)
+            .background(if (dark) colors.surfaceRaised.copy(alpha = 0.9f) else colors.bubbleOther)
+            .semantics { contentDescription = if (dark) "Switch to light theme" else "Switch to dark theme" },
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            targetState = dark,
+            transitionSpec = {
+                (scaleIn(DlMotion.pop(), initialScale = 0.4f) + fadeIn(DlMotion.snappy())) togetherWith
+                    (scaleOut(DlMotion.snappy(), targetScale = 0.4f) + fadeOut(DlMotion.snappy()))
+            },
+            label = "themeIcon",
+        ) { isDark ->
+            Icon(
+                if (isDark) Icons.Rounded.DarkMode else Icons.Rounded.LightMode,
+                contentDescription = null,
+                tint = if (isDark) Color(0xFFB9B4FF) else Color(0xFFFF9F0A),
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = spin },
+            )
+        }
     }
 }

@@ -44,6 +44,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -183,8 +188,12 @@ fun DetailTopBar(
 data class TabItem(val label: String, val icon: ImageVector, val selectedIcon: ImageVector, val badge: Int = 0)
 
 /**
- * Floating capsule tab bar made of glass. The selection pill glides between tabs with a spring that
- * starts from wherever it is now, so fast tab hopping never snaps. Haptic tick on change.
+ * Floating capsule tab bar made of glass, with a Liquid Glass selection lens.
+ *
+ * Tapping a tab makes the lens flow there like a drop of water — it stretches toward the new tab,
+ * thins out, and its tail catches up with a small wobble. Press and slide along the bar to drag
+ * the lens itself: it lifts, magnifies the icon beneath it, and is thrown to the tab your flick
+ * is heading for.
  */
 @Composable
 fun FloatingTabBar(
@@ -194,7 +203,7 @@ fun FloatingTabBar(
     modifier: Modifier = Modifier,
 ) {
     val colors = DlTheme.colors
-    val haptics = rememberHaptics()
+    val tintStops = colors.accentGradient.map { it.copy(alpha = if (colors.isDark) 0.26f else 0.16f) }
     Box(
         modifier
             .navigationBarsPadding()
@@ -204,55 +213,59 @@ fun FloatingTabBar(
             .height(TabBarHeight)
             .glass(CircleShape, thick = true),
     ) {
-        BoxWithConstraints(Modifier.fillMaxSize().padding(6.dp)) {
-            val itemWidth = maxWidth / items.size
-            val pillX by animateDpAsState(itemWidth * selected, DlMotion.snappy(), label = "pill")
-            Box(
-                Modifier
-                    .offset(x = pillX)
-                    .width(itemWidth)
-                    .fillMaxHeight()
-                    .background(
-                        Brush.horizontalGradient(colors.accentGradient.map { it.copy(alpha = if (colors.isDark) 0.22f else 0.14f) }),
-                        CircleShape,
-                    ),
-            )
-            Row(Modifier.fillMaxSize()) {
-                items.forEachIndexed { index, item ->
-                    TabButton(
-                        item = item,
-                        selected = index == selected,
-                        onClick = {
-                            if (index != selected) haptics.selection()
-                            onSelect(index)
-                        },
-                    )
-                }
-            }
+        LiquidSelector(
+            count = items.size,
+            selected = selected,
+            onSelect = onSelect,
+            modifier = Modifier.fillMaxSize().padding(6.dp),
+            pressedScale = 0.9f,
+            drawPill = { frame -> drawGlassLens(frame, tintStops, colors.glassEdge, colors.isDark) },
+        ) { index, focus, lifted ->
+            TabContent(items[index], focus, lifted, selected = index == selected)
         }
     }
 }
 
+/** Paints the lens: brand tint, a soft top highlight, and a bright rim that strengthens when lifted. */
+private fun DrawScope.drawGlassLens(frame: LiquidPillFrame, tint: List<Color>, rim: Color, dark: Boolean) {
+    val r = CornerRadius(frame.corner)
+    drawRoundRect(Brush.horizontalGradient(tint, startX = frame.rect.left, endX = frame.rect.right), frame.rect.topLeft, frame.rect.size, r)
+    drawRoundRect(
+        Brush.verticalGradient(
+            listOf(Color.White.copy(alpha = (if (dark) 0.10f else 0.35f) + 0.12f * frame.lift), Color.Transparent),
+            startY = frame.rect.top,
+            endY = frame.rect.center.y,
+        ),
+        frame.rect.topLeft,
+        frame.rect.size,
+        r,
+    )
+    drawRoundRect(
+        rim.copy(alpha = (rim.alpha + 0.25f * frame.lift).coerceAtMost(1f)),
+        frame.rect.topLeft,
+        frame.rect.size,
+        r,
+        style = Stroke(width = 1.dp.toPx()),
+    )
+}
+
 @Composable
-private fun RowScope.TabButton(item: TabItem, selected: Boolean, onClick: () -> Unit) {
+private fun TabContent(item: TabItem, focus: Float, lifted: Float, selected: Boolean) {
     val colors = DlTheme.colors
-    val tint by animateColorAsState(if (selected) colors.accent else colors.textSecondary, DlMotion.snappy(), label = "tabTint")
-    val iconScale by animateFloatAsState(if (selected) 1.08f else 1f, DlMotion.snappy(), label = "tabScale")
+    // Continuous, not switched: the icon tints and magnifies by how much of the lens sits over it.
+    val tint = lerp(colors.textSecondary, colors.accent, focus)
+    val scale = 1f + 0.08f * focus + 0.16f * focus * lifted
     Column(
-        Modifier
-            .weight(1f)
-            .fillMaxHeight()
-            .pressable(pressedScale = 0.9f, role = Role.Tab, onClick = onClick)
-            .semantics { this.selected = selected },
+        Modifier.semantics { this.selected = selected },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Box {
             Icon(
-                if (selected) item.selectedIcon else item.icon,
+                if (focus > 0.5f) item.selectedIcon else item.icon,
                 contentDescription = null,
                 tint = tint,
-                modifier = Modifier.size(24.dp).graphicsLayer { scaleX = iconScale; scaleY = iconScale },
+                modifier = Modifier.size(24.dp).graphicsLayer { scaleX = scale; scaleY = scale },
             )
             if (item.badge > 0) {
                 Badge(item.badge, Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-6).dp))
