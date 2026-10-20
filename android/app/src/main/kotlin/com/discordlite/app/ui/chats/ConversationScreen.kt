@@ -276,20 +276,27 @@ private fun MessageThread(
 private fun Modifier.sendAnimation(active: Boolean, mine: Boolean, onDone: () -> Unit): Modifier {
     if (!active) return this
     val reduced = DlTheme.reducedMotion
-    val p = remember { Animatable(0f) }
+    // Width and height grow on different springs, so the bubble lands like a drop of jelly.
+    val px = remember { Animatable(0f) }
+    val py = remember { Animatable(0f) }
     val rise = with(LocalDensity.current) { 28.dp.toPx() }
     LaunchedEffect(Unit) {
-        p.animateTo(1f, if (reduced) DlMotion.smooth() else DlMotion.spring(0.78f, 0.4f))
+        if (reduced) {
+            px.snapTo(1f)
+            py.animateTo(1f, DlMotion.smooth())
+        } else {
+            launch { px.animateTo(1f, DlMotion.spring(0.6f, 0.32f)) }
+            py.animateTo(1f, DlMotion.spring(0.68f, 0.44f))
+        }
         onDone()
     }
     return graphicsLayer {
-        val v = p.value
-        alpha = v.coerceIn(0f, 1f)
+        alpha = py.value.coerceIn(0f, 1f)
         if (!reduced) {
             transformOrigin = TransformOrigin(if (mine) 1f else 0f, 1f)
-            scaleX = 0.7f + 0.3f * v
-            scaleY = 0.7f + 0.3f * v
-            translationY = (1f - v) * rise
+            scaleX = 0.6f + 0.4f * px.value
+            scaleY = 0.6f + 0.4f * py.value
+            translationY = (1f - py.value) * rise
         }
     }
 }
