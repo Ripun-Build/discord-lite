@@ -53,3 +53,43 @@ data class Friends(
 @Serializable data class RelationshipResponse(val relationship: Relationship)
 @Serializable data class StatusResponse(val status: String)
 @Serializable data class ErrorBody(val error: String)
+
+// Phase 2: Signal keys and encrypted messages. Byte fields are base64.
+
+@Serializable data class SignedPreKeyBody(val keyId: Int, val publicKey: String, val signature: String)
+@Serializable data class KyberPreKeyBody(val keyId: Int, val publicKey: String, val signature: String)
+@Serializable data class OneTimePreKeyBody(val keyId: Int, val publicKey: String)
+
+@Serializable
+data class UploadKeysBody(
+    val identityKey: String,
+    val registrationId: Int,
+    val signedPreKey: SignedPreKeyBody,
+    val lastResortKyberPreKey: KyberPreKeyBody,
+    val kyberPreKeys: List<KyberPreKeyBody>,
+    val oneTimePreKeys: List<OneTimePreKeyBody>,
+)
+
+@Serializable
+data class TopUpKeysBody(
+    val kyberPreKeys: List<KyberPreKeyBody> = emptyList(),
+    val oneTimePreKeys: List<OneTimePreKeyBody> = emptyList(),
+)
+
+@Serializable data class PreKeyCounts(val oneTime: Int, val kyber: Int)
+
+@Serializable
+data class PreKeyBundleResponse(
+    val userId: String,
+    val registrationId: Int,
+    val identityKey: String,
+    val signedPreKey: SignedPreKeyBody,
+    val kyberPreKey: KyberPreKeyBody,
+    val oneTimePreKey: OneTimePreKeyBody? = null,
+)
+
+@Serializable data class Envelope(val id: Long, val senderId: String, val type: Int, val body: String, val sentAt: Long)
+@Serializable data class SendMessageBody(val recipientId: String, val type: Int, val body: String, val clientId: String)
+@Serializable data class SendMessageResponse(val id: Long, val sentAt: Long)
+@Serializable data class AckBody(val ids: List<Long>)
+@Serializable data class GatewayFrame(val t: String, val envelope: Envelope? = null, val ids: List<Long>? = null)

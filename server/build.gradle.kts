@@ -37,6 +37,7 @@ dependencies {
 
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
+    testImplementation(libs.ktor.client.cio)
     testImplementation(libs.testcontainers.postgresql)
     // Tests act as real Signal clients so the full encrypt → relay → decrypt path is exercised.
     testImplementation(libs.libsignal.client)
@@ -56,4 +57,14 @@ tasks.named<JavaExec>("run") {
             .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains('=') }
             .forEach { line -> environment(line.substringBefore('='), line.substringAfter('=')) }
     }
+}
+
+// A test friend that replies to whatever you send it, using real Signal encryption.
+// Run the server first, then: ./gradlew echoBot
+tasks.register<JavaExec>("echoBot") {
+    group = "application"
+    description = "Runs @echobot, an end-to-end encrypted test friend that echoes your messages."
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.discordlite.server.tools.EchoBotKt")
+    standardInput = System.`in`
 }

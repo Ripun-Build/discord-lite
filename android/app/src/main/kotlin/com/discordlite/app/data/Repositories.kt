@@ -1,6 +1,19 @@
 package com.discordlite.app.data
 
 import android.content.Context
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import com.discordlite.app.data.local.metaSet
+import com.discordlite.app.data.local.metaGet
+import com.discordlite.app.data.local.LocalDatabase
+import com.discordlite.app.crypto.SignalStore
+import com.discordlite.app.crypto.KeyManager
+import com.discordlite.app.chat.GatewayClient
+import com.discordlite.app.chat.ChatRepository
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.discordlite.app.BuildConfig
 import com.discordlite.app.data.remote.ApiClient
@@ -117,11 +130,49 @@ class SocialRepository(private val api: DiscordLiteApi) {
 
 /** App-wide singletons. Created once in [com.discordlite.app.DiscordLiteApp]. */
 class AppContainer(context: Context) {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val tokenStore = TokenStore(context)
-    private val api = ApiClient.create(BuildConfig.API_BASE_URL, tokenStore)
+    private val clients = ApiClient.create(BuildConfig.API_BASE_URL, tokenStore)
+    private val api = clients.api
     val account = AccountRepository(api, tokenStore)
     val social = SocialRepository(api)
     val settings = AppSettings(context)
+
+    private val local = LocalDatabase(context)
+    private val signalStore: SignalStore = SignalStore(local) { address -> chat.onIdentityChanged(address.substringBefore('.')) }
+    private val keys = KeyManager(api, signalStore, local)
+    val chat: ChatRepository = ChatRepository(api, signalStore, local, social) { account.me.value?.id ?: local.db.metaGet(OWNER) }
+    val gateway = GatewayClient(clients.http, BuildConfig.API_BASE_URL, scope, chat::receive, chat::retryPending)
+
+    private val bootLock = Mutex()
+
+    /**
+     * Gets a signed-in device ready to chat: makes sure the local data belongs to this account,
+     * publishes Signal keys if needed, and opens the live connection. Safe to call repeatedly.
+     */
+    suspend fun startSession() = bootLock.withLock {
+        if (!account.isSignedIn) return@withLock
+        val me = account.me.value ?: runCatching { account.loadMe() }.getOrNull() ?: return@withLock
+        withContext(Dispatchers.IO) {
+            val owner = local.db.metaGet(OWNER)
+            if (owner != null && owner != me.id) local.wipe() // a different account used this phone before
+            local.db.metaSet(OWNER, me.id)
+        }
+        runCatching { keys.ensurePublished() }
+        gateway.start()
+    }
+
+    /** Signing out removes this account's keys and messages from the phone. */
+    suspend fun endSession() {
+        gateway.stop()
+        account.signOut()
+        social.clear()
+        withContext(Dispatchers.IO) { local.wipe() }
+    }
+
+    private companion object {
+        const val OWNER = "owner"
+    }
 }
 
 val LocalAppContainer = staticCompositionLocalOf<AppContainer> { error("AppContainer not provided") }

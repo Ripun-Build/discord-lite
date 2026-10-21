@@ -39,12 +39,15 @@ suspend fun apiCallUnit(block: suspend () -> retrofit2.Response<Unit>) = apiCall
 }
 
 object ApiClient {
-    private val json = Json {
+    val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
     }
 
-    fun create(baseUrl: String, store: TokenStore): DiscordLiteApi {
+    /** The REST API plus the authenticated HTTP client (reused for the WebSocket). */
+    class Clients(val api: DiscordLiteApi, val http: OkHttpClient)
+
+    fun create(baseUrl: String, store: TokenStore): Clients {
         val converter = json.asConverterFactory("application/json".toMediaType())
         val plain = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -57,8 +60,9 @@ object ApiClient {
             .addInterceptor(AuthInterceptor(store))
             .authenticator(TokenRefresher(store, refreshApi))
             .build()
-        return Retrofit.Builder().baseUrl(baseUrl).client(authed).addConverterFactory(converter).build()
+        val api = Retrofit.Builder().baseUrl(baseUrl).client(authed).addConverterFactory(converter).build()
             .create(DiscordLiteApi::class.java)
+        return Clients(api, authed)
     }
 }
 

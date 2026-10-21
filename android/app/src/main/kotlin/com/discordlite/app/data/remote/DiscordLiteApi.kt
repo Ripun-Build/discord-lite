@@ -24,6 +24,7 @@ interface DiscordLiteApi {
     @PATCH("v1/me") suspend fun updateMe(@Body body: UpdateMeBody): Me
 
     @GET("v1/users/search") suspend fun search(@Query("q") query: String): List<PublicUser>
+    @GET("v1/users/{userId}") suspend fun user(@Path("userId") userId: String): PublicUser
 
     @GET("v1/friends") suspend fun friends(): Friends
     @POST("v1/friends/requests") suspend fun sendFriendRequest(@Body body: FriendRequestBody): RelationshipResponse
@@ -34,6 +35,15 @@ interface DiscordLiteApi {
     @GET("v1/blocks") suspend fun blocked(): List<PublicUser>
     @PUT("v1/blocks/{userId}") suspend fun block(@Path("userId") userId: String): Response<Unit>
     @DELETE("v1/blocks/{userId}") suspend fun unblock(@Path("userId") userId: String): Response<Unit>
+
+    @PUT("v1/keys") suspend fun uploadKeys(@Body body: UploadKeysBody): Response<Unit>
+    @POST("v1/keys/topup") suspend fun topUpKeys(@Body body: TopUpKeysBody): Response<Unit>
+    @GET("v1/keys/count") suspend fun keyCounts(): PreKeyCounts
+    @GET("v1/keys/{userId}") suspend fun preKeyBundle(@Path("userId") userId: String): PreKeyBundleResponse
+
+    @POST("v1/messages") suspend fun sendMessage(@Body body: SendMessageBody): SendMessageResponse
+    @GET("v1/messages") suspend fun pendingMessages(): List<Envelope>
+    @POST("v1/messages/ack") suspend fun ack(@Body body: AckBody): Response<Unit>
 }
 
 /** Used only by the token refresher, on a client without the auth interceptor (so no loops). */

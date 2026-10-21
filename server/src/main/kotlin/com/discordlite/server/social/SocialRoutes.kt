@@ -25,6 +25,7 @@ fun Route.socialRoutes(social: SocialService) {
     get("/v1/users/search") {
         call.respond(social.search(call.userId, call.request.queryParameters["q"].orEmpty()))
     }
+    get("/v1/users/{userId}") { call.respond(social.profile(call.userId, call.pathId())) }
 
     route("/v1/friends") {
         get { call.respond(social.friends(call.userId)) }
