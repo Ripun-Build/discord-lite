@@ -89,7 +89,7 @@ data class PreKeyBundleResponse(
 )
 
 @Serializable data class Envelope(val id: Long, val senderId: String, val type: Int, val body: String, val sentAt: Long)
-@Serializable data class SendMessageBody(val recipientId: String, val type: Int, val body: String, val clientId: String)
+@Serializable data class SendMessageBody(val recipientId: String, val type: Int, val body: String, val clientId: String, val registrationId: Int? = null)
 @Serializable data class SendMessageResponse(val id: Long, val sentAt: Long)
 @Serializable data class AckBody(val ids: List<Long>)
-@Serializable data class GatewayFrame(val t: String, val envelope: Envelope? = null, val ids: List<Long>? = null)
+@Serializable data class GatewayFrame(val t: String, val envelope: Envelope? = null, val ids: List<Long>? = null, val to: String? = null)

@@ -11,13 +11,15 @@ import java.util.concurrent.ConcurrentHashMap
  * One frame on the real-time connection.
  *
  * Server → client: `message` (an [Envelope]), `ready` (backlog delivered).
- * Client → server: `ack` (envelope [ids] stored on the device).
+ * Client → server: `ack` (envelope [ids] stored on the device), `ephemeral` (an encrypted
+ * typing event for user [to] — passed on if they're online, never stored).
  */
 @Serializable
 data class GatewayFrame(
     val t: String,
     val envelope: Envelope? = null,
     val ids: List<Long>? = null,
+    val to: String? = null,
 )
 
 /**

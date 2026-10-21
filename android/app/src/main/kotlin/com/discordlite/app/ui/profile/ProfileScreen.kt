@@ -59,6 +59,12 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.discordlite.app.ui.common.ErrorBanner
+import com.discordlite.app.security.findFragmentActivity
+import com.discordlite.app.security.AppLock
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.DoneAll
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import com.discordlite.app.data.remote.DmPolicy
@@ -196,9 +202,23 @@ fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
     val scope = rememberCoroutineScope()
     // Shown immediately on tap; saved to the server in the background (reverts if that fails).
     var dmSetting by rememberSaveable(me?.dmPolicy) { mutableIntStateOf(me?.dmPolicy?.ordinal ?: 1) }
-    var appLock by rememberSaveable { mutableStateOf(false) }
-    var hideNotifications by rememberSaveable { mutableStateOf(false) }
-    var blockScreenshots by rememberSaveable { mutableStateOf(true) }
+    val appSettings = LocalAppSettings.current
+    val context = LocalContext.current
+    var lockError by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // Turning app lock on or off needs the phone's own unlock first.
+    fun toggleAppLock(on: Boolean) {
+        val activity = context.findFragmentActivity() ?: return
+        if (!AppLock.isAvailable(context)) {
+            lockError = "Set a screen lock (PIN, pattern or fingerprint) in your phone's settings first."
+            return
+        }
+        lockError = null
+        AppLock.authenticate(activity, title = if (on) "Turn on app lock" else "Turn off app lock", onSuccess = {
+            appSettings.updateAppLock(on)
+            haptics.confirm()
+        })
+    }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + TopBarHeight + 12.dp
 
     GlassScaffold(
@@ -269,14 +289,27 @@ fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
             item {
                 SectionCard {
                     Column {
-                        ToggleRow(Icons.Rounded.Fingerprint, Color(0xFF30B0C7), "App lock", "Fingerprint or PIN to open the app", appLock) { appLock = it }
+                        ToggleRow(Icons.Rounded.Fingerprint, Color(0xFF30B0C7), "App lock", "Fingerprint, face or PIN to open the app", appSettings.appLock) { toggleAppLock(it) }
                         Divider(inset = 60.dp)
-                        ToggleRow(Icons.Rounded.NotificationsOff, Color(0xFFFF9F0A), "Hide notification content", "Show \"New message\" only", hideNotifications) { hideNotifications = it }
+                        ToggleRow(Icons.Rounded.NotificationsOff, Color(0xFFFF9F0A), "Hide notification content", "Show \"New message\" only", appSettings.hideNotificationContent) { appSettings.updateHideNotificationContent(it) }
                         Divider(inset = 60.dp)
-                        ToggleRow(Icons.Rounded.ScreenshotMonitor, Color(0xFF5E5CE6), "Block screenshots", "Also hides the app in Recents", blockScreenshots) { blockScreenshots = it }
+                        ToggleRow(Icons.Rounded.ScreenshotMonitor, Color(0xFF5E5CE6), "Block screenshots", "Also hides the app in Recents", appSettings.blockScreenshots) { appSettings.updateBlockScreenshots(it) }
                     }
                 }
             }
+            item { ErrorBanner(lockError, if (lockError != null) 1 else 0, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+
+            item { SectionHeader("Chats") }
+            item {
+                SectionCard {
+                    Column {
+                        ToggleRow(Icons.Rounded.DoneAll, Color(0xFF34C759), "Read receipts", "Let friends see when you've read their messages", appSettings.readReceipts) { appSettings.updateReadReceipts(it) }
+                        Divider(inset = 60.dp)
+                        ToggleRow(Icons.Rounded.MoreHoriz, Color(0xFF0A84FF), "Typing indicators", "Show when you're typing, and see when friends are", appSettings.typingIndicators) { appSettings.updateTypingIndicators(it) }
+                    }
+                }
+            }
+            item { SectionFooter("Delivery receipts are always sent so friends know a message reached you. Receipts and typing are end-to-end encrypted too.") }
 
             item { SectionHeader("Encryption") }
             item {

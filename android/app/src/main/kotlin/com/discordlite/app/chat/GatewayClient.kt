@@ -48,7 +48,7 @@ class GatewayClient(
         scope.launch {
             for (envelope in inbox) {
                 runCatching { onEnvelope(envelope) }
-                ack(envelope.id)
+                if (envelope.id > 0) ack(envelope.id) // id 0 = ephemeral (typing): never stored, nothing to ack
             }
         }
     }
@@ -72,6 +72,12 @@ class GatewayClient(
     private fun connect() {
         _state.value = State.Connecting
         socket = client.newWebSocket(Request.Builder().url(url).build(), Listener())
+    }
+
+    /** Sends an encrypted typing event; dropped silently if offline (it's only a hint). */
+    fun sendEphemeral(to: String, type: Int, body: String) {
+        val frame = GatewayFrame("ephemeral", Envelope(0, "", type, body, 0), to = to)
+        socket?.send(ApiClient.json.encodeToString(GatewayFrame.serializer(), frame))
     }
 
     private fun ack(id: Long) {

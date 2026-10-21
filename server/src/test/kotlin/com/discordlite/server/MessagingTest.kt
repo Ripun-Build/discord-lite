@@ -126,6 +126,44 @@ class MessagingTest {
     }
 
     @Test
+    fun `typing events are relayed live but never stored, and only within an existing DM`() = testApplication {
+        val app = startApp()
+        val http = jsonClient()
+        val ws = createClient { install(WebSockets) }
+        val (alice, aliceSignal) = http.signalUser(app)
+        val (bob, bobSignal) = http.signalUser(app)
+        val (carol, _) = http.signalUser(app)
+        http.befriend(alice, bob)
+        aliceSignal.startSession(http.get("/v1/keys/${bob.id}") { bearerAuth(alice.token) }.body())
+        http.sendEncrypted(alice, bob, aliceSignal.encrypt(bob.id, "hey"))
+
+        ws.webSocket("/v1/gateway", request = { bearerAuth(bob.token) }) {
+            val first = nextFrame()
+            bobSignal.decrypt(first.envelope!!)
+            send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), GatewayFrame("ack", ids = listOf(first.envelope!!.id)))))
+            assertEquals("ready", nextFrame().t)
+
+            // A stranger's "typing" never reaches Bob (no DM between them).
+            ws.webSocket("/v1/gateway", request = { bearerAuth(carol.token) }) {
+                val fake = GatewayFrame("ephemeral", Envelope(0, "", 2, b64(byteArrayOf(1, 2, 3)), 0), to = bob.id)
+                send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), fake)))
+            }
+            // Alice's encrypted typing event arrives with id 0 (not stored, not acknowledged).
+            ws.webSocket("/v1/gateway", request = { bearerAuth(alice.token) }) {
+                val typing = aliceSignal.encrypt(bob.id, "{\"kind\":\"typing\",\"state\":\"on\"}")
+                val frame = GatewayFrame("ephemeral", Envelope(0, "", typing.type, b64(typing.serialize()), 0), to = bob.id)
+                send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), frame)))
+                kotlinx.coroutines.delay(300)
+            }
+            val live = nextFrame()
+            assertEquals(0L, live.envelope!!.id)
+            assertEquals(alice.id, live.envelope!!.senderId)
+            assertTrue(bobSignal.decrypt(live.envelope!!).contains("typing"))
+        }
+        assertTrue(http.get("/v1/messages") { bearerAuth(bob.token) }.body<List<Envelope>>().isEmpty())
+    }
+
+    @Test
     fun `each bundle uses up a one-time key, then falls back to the last-resort key`() = testApplication {
         val app = startApp()
         val http = jsonClient()
@@ -169,6 +207,49 @@ class MessagingTest {
         http.put("/v1/blocks/${alice.id}") { bearerAuth(bob.token) }
         val blocked = http.sendEncrypted(alice, bob, aliceSignal.encrypt(bob.id, "hello?"))
         assertEquals(HttpStatusCode.NotFound, blocked.status)
+    }
+
+    @Test
+    fun `after a reinstall the sender is told its session is stale`() = testApplication {
+        val app = startApp()
+        val http = jsonClient()
+        val (alice, aliceSignal) = http.signalUser(app)
+        val (bob, _) = http.signalUser(app)
+        http.befriend(alice, bob)
+        val bundle = http.get("/v1/keys/${bob.id}") { bearerAuth(alice.token) }.body<PreKeyBundleDto>()
+        aliceSignal.startSession(bundle)
+
+        // Bob reinstalls: new identity, new registration id.
+        val bobAgain = SignalTestClient(bob.id)
+        http.put("/v1/keys") {
+            bearerAuth(bob.token)
+            contentType(ContentType.Application.Json)
+            setBody(bobAgain.keyUpload())
+        }
+        val message = aliceSignal.encrypt(bob.id, "hello?")
+        val stale = http.postJson(
+            "/v1/messages",
+            SendMessageRequest(bob.id, message.type, b64(message.serialize()), UUID.randomUUID().toString(), registrationId = bundle.registrationId),
+            alice.token,
+        )
+        assertEquals(HttpStatusCode.Gone, stale.status)
+        assertTrue(stale.bodyAsText().contains("stale_session"))
+
+        // Alice rebuilds from Bob's new keys, and the message gets through.
+        val fresh = http.get("/v1/keys/${bob.id}") { bearerAuth(alice.token) }.body<PreKeyBundleDto>()
+        val bobAddress = org.signal.libsignal.protocol.SignalProtocolAddress(bob.id, 1)
+        aliceSignal.store.deleteSession(bobAddress)
+        // Like the app: accept the new identity (and show "security code changed").
+        aliceSignal.store.saveIdentity(bobAddress, org.signal.libsignal.protocol.IdentityKey(com.discordlite.server.messaging.unb64(fresh.identityKey)))
+        aliceSignal.startSession(fresh)
+        val retry = aliceSignal.encrypt(bob.id, "hello?")
+        val ok = http.postJson(
+            "/v1/messages",
+            SendMessageRequest(bob.id, retry.type, b64(retry.serialize()), UUID.randomUUID().toString(), registrationId = fresh.registrationId),
+            alice.token,
+        )
+        assertEquals(HttpStatusCode.Accepted, ok.status)
+        assertEquals("hello?", bobAgain.decrypt(http.get("/v1/messages") { bearerAuth(bob.token) }.body<List<Envelope>>().single()))
     }
 
     @Test
