@@ -33,3 +33,6 @@ google-services.json
 
 # Logs
 *.log
+
+# Local notes (dev test accounts etc.) — never committed
+*.local.md

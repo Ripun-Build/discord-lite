@@ -81,6 +81,8 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
     val conversation by remember(peerId) { chat.conversation(peerId) }.collectAsStateWithLifecycle(null)
     val messages by remember(peerId) { chat.messages(peerId) }.collectAsStateWithLifecycle(emptyList())
     val connection by container.gateway.state.collectAsStateWithLifecycle()
+    val typingPeers by chat.typing.collectAsStateWithLifecycle()
+    val peerTyping = peerId in typingPeers
     var draft by rememberSaveable { mutableStateOf("") }
     // Plain set (not observable state): it only remembers which bubbles already played their entrance.
     val justSent = remember { HashSet<String>() }
@@ -94,7 +96,7 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
 
     val display = messages.asReversed()
     val latestMine = messages.lastOrNull { it.fromMe }?.clientId
-    LaunchedEffect(messages.size) {
+    LaunchedEffect(messages.size, peerTyping) {
         if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
     }
 
@@ -116,10 +118,11 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
                             Icon(Icons.Rounded.Lock, null, tint = colors.success, modifier = Modifier.size(11.dp))
                             Spacer(Modifier.width(3.dp))
                             Text(
-                                when (connection) {
-                                    GatewayClient.State.Online -> "End-to-end encrypted"
-                                    GatewayClient.State.Connecting -> "Connecting…"
-                                    GatewayClient.State.Offline -> "Waiting for network…"
+                                when {
+                                    peerTyping -> "typing…"
+                                    connection == GatewayClient.State.Online -> "End-to-end encrypted"
+                                    connection == GatewayClient.State.Connecting -> "Connecting…"
+                                    else -> "Waiting for network…"
                                 },
                                 style = DlTheme.type.caption,
                                 color = colors.textSecondary,
@@ -130,7 +133,10 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
             )
             Composer(
                 draft = draft,
-                onDraftChange = { draft = it },
+                onDraftChange = {
+                    draft = it
+                    chat.onTyping(peerId, it.isNotBlank())
+                },
                 placeholder = "Message",
                 onSend = {
                     val text = draft
@@ -148,6 +154,11 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = statusTop + TopBarHeight + 18.dp, bottom = 74.dp + navBottom),
         ) {
+            if (peerTyping) {
+                item(key = "typing") {
+                    TypingIndicator(name, bubble = true, Modifier.animateItem(placementSpec = DlMotion.smooth(IntOffset.VisibilityThreshold)))
+                }
+            }
             itemsIndexed(display, key = { _, m -> m.localId }) { index, message ->
                 val newer = display.getOrNull(index - 1)
                 val older = display.getOrNull(index + 1)
@@ -216,6 +227,8 @@ private fun Bubble(message: ChatMessage, firstOfGroup: Boolean, lastOfGroup: Boo
                 !mine -> time to colors.textTertiary
                 message.status == MessageStatus.SENDING -> "Sending…" to colors.textTertiary
                 failed -> "Not sent · Tap to retry" to colors.danger
+                showStatus && message.status == MessageStatus.READ -> "$time · Read" to colors.accent
+                showStatus && message.status == MessageStatus.DELIVERED -> "$time · Delivered" to colors.textTertiary
                 showStatus -> "$time · Sent" to colors.textTertiary
                 else -> time to colors.textTertiary
             }

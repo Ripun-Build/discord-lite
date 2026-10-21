@@ -81,6 +81,7 @@ dependencies {
     implementation(libs.sqlcipher.android)
     implementation(libs.androidx.sqlite)
     implementation(libs.androidx.lifecycle.process)
+    implementation(libs.androidx.biometric)
 
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 

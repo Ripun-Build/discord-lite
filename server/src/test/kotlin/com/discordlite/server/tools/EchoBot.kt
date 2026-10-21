@@ -108,16 +108,37 @@ fun main() = runBlocking {
             if (frame !is Frame.Text) continue
             val event = json.decodeFromString(GatewayFrame.serializer(), frame.readText())
             val envelope = event.envelope ?: continue
-            val text = runCatching {
-                val payload = json.parseToJsonElement(signal.decrypt(envelope)).jsonObject
-                payload["text"]?.jsonPrimitive?.content
-            }.getOrElse {
-                println("Couldn't decrypt a message (${it.javaClass.simpleName}) — skipping")
+            val payload = runCatching { json.parseToJsonElement(signal.decrypt(envelope)).jsonObject }.getOrElse {
+                println("Couldn't decrypt envelope ${envelope.id} type ${envelope.type} (${it.javaClass.simpleName}: ${it.message}) — skipping")
                 null
             }
-            send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), GatewayFrame("ack", ids = listOf(envelope.id)))))
-            if (text == null) continue
+            if (envelope.id > 0) send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), GatewayFrame("ack", ids = listOf(envelope.id)))))
+            val kind = payload?.get("kind")?.jsonPrimitive?.content ?: "text" // older payloads omit the default
+            if (payload == null || kind != "text") continue // receipts / typing from the app
+            val text = payload["text"]?.jsonPrimitive?.content ?: continue
+            val messageId = payload["id"]?.jsonPrimitive?.content ?: continue
             println("← \"$text\"")
+
+            suspend fun encryptedTo(body: String) = signal.encrypt(envelope.senderId, body)
+            suspend fun sendStored(body: String) {
+                val c = encryptedTo(body)
+                post("/v1/messages", SendMessageRequest(envelope.senderId, c.type, b64(c.serialize()), UUID.randomUUID().toString()), token)
+            }
+            fun control(kind: String, state: String, ids: List<String>? = null) = buildJsonObject {
+                put("v", 1)
+                put("kind", kind)
+                put("id", UUID.randomUUID().toString())
+                put("ts", System.currentTimeMillis())
+                put("state", state)
+                if (ids != null) put("ids", kotlinx.serialization.json.JsonArray(ids.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }.toString()
+
+            // Behave like a person: delivered → typing… → read → reply.
+            sendStored(control("receipt", "delivered", listOf(messageId)))
+            val typing = encryptedTo(control("typing", "on"))
+            send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), GatewayFrame("ephemeral", com.discordlite.server.messaging.Envelope(0, "", typing.type, b64(typing.serialize()), 0), to = envelope.senderId))))
+            delay(1_500)
+            sendStored(control("receipt", "read", listOf(messageId)))
 
             val reply = buildJsonObject {
                 put("v", 1)

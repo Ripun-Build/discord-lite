@@ -57,6 +57,7 @@ fun Route.messagingRoutes(keys: KeyService, messages: MessageService, gateway: G
                 val parsed = runCatching { gateway.json.decodeFromString(GatewayFrame.serializer(), frame.readText()) }.getOrNull() ?: continue
                 when (parsed.t) {
                     "ack" -> messages.ack(user, parsed.ids.orEmpty())
+                    "ephemeral" -> messages.relayEphemeral(user, parsed.to, parsed.envelope?.type, parsed.envelope?.body)
                 }
             }
         } finally {

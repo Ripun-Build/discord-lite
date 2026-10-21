@@ -23,8 +23,19 @@ import java.util.UUID
 @Serializable
 data class Envelope(val id: Long, val senderId: String, val type: Int, val body: String, val sentAt: Long)
 
+/**
+ * [registrationId] is the recipient registration id the sender's session was built for. If the
+ * recipient has since reinstalled (new keys, new id), the server answers `stale_session` so the
+ * sender rebuilds the session instead of sending something that can't be decrypted.
+ */
 @Serializable
-data class SendMessageRequest(val recipientId: String, val type: Int, val body: String, val clientId: String)
+data class SendMessageRequest(
+    val recipientId: String,
+    val type: Int,
+    val body: String,
+    val clientId: String,
+    val registrationId: Int? = null,
+)
 
 @Serializable
 data class SendMessageResponse(val id: Long, val sentAt: Long)
@@ -58,6 +69,10 @@ class MessageService(
         val body = runCatching { unb64(request.body) }.getOrNull() ?: throw badRequest("invalid_body")
         if (body.isEmpty() || body.size > MAX_BODY_BYTES) throw badRequest("invalid_body")
         checkCanMessage(sender, recipient)
+        if (request.registrationId != null) {
+            val current = db.tx { queryOne("SELECT registration_id FROM identity_keys WHERE user_id = ?", recipient) { it.getInt("registration_id") } }
+            if (current != null && current != request.registrationId) throw ApiException(HttpStatusCode.Gone, "stale_session")
+        }
 
         val envelope = db.tx {
             exec(
@@ -78,6 +93,27 @@ class MessageService(
         }
         if (envelope.second) gateway.deliver(recipient, envelope.first)
         return SendMessageResponse(envelope.first.id, envelope.first.sentAt)
+    }
+
+    /**
+     * Passes an encrypted, short-lived event (typing) straight to [recipient] if they're
+     * connected. Nothing is stored. Only between people who already have a DM, and never across a
+     * block. Delivered with id 0, which tells the app not to acknowledge it.
+     */
+    suspend fun relayEphemeral(sender: UUID, recipientRaw: String?, type: Int?, bodyRaw: String?) {
+        val recipient = runCatching { UUID.fromString(recipientRaw) }.getOrNull() ?: return
+        if (type !in ALLOWED_TYPES || bodyRaw == null) return
+        val body = runCatching { unb64(bodyRaw) }.getOrNull() ?: return
+        if (body.isEmpty() || body.size > MAX_EPHEMERAL_BYTES) return
+        if (!gateway.isOnline(recipient) || social.isBlocked(sender, recipient)) return
+        val hasThread = db.tx {
+            queryOne(
+                "SELECT 1 FROM dm_threads WHERE user_low = LEAST(?::uuid, ?::uuid) AND user_high = GREATEST(?::uuid, ?::uuid)",
+                sender, recipient, sender, recipient,
+            ) { true } == true
+        }
+        if (!hasThread) return
+        gateway.deliver(recipient, Envelope(0, sender.toString(), type!!, bodyRaw, System.currentTimeMillis()))
     }
 
     /** Envelopes waiting for [user], oldest first. */
@@ -126,5 +162,6 @@ class MessageService(
         const val COLUMNS = "id, sender_id, type, body, created_at"
         val ALLOWED_TYPES = setOf(2, 3) // libsignal WHISPER_TYPE, PREKEY_TYPE
         const val MAX_BODY_BYTES = 64 * 1024
+        const val MAX_EPHEMERAL_BYTES = 4 * 1024
     }
 }

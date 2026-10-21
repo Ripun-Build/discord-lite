@@ -135,14 +135,15 @@ class AppContainer(context: Context) {
     private val clients = ApiClient.create(BuildConfig.API_BASE_URL, tokenStore)
     private val api = clients.api
     val account = AccountRepository(api, tokenStore)
-    val social = SocialRepository(api)
     val settings = AppSettings(context)
+    val social = SocialRepository(api)
 
     private val local = LocalDatabase(context)
     private val signalStore: SignalStore = SignalStore(local) { address -> chat.onIdentityChanged(address.substringBefore('.')) }
     private val keys = KeyManager(api, signalStore, local)
-    val chat: ChatRepository = ChatRepository(api, signalStore, local, social) { account.me.value?.id ?: local.db.metaGet(OWNER) }
+    val chat: ChatRepository = ChatRepository(api, signalStore, local, social, settings, scope) { account.me.value?.id ?: local.db.metaGet(OWNER) }
     val gateway = GatewayClient(clients.http, BuildConfig.API_BASE_URL, scope, chat::receive, chat::retryPending)
+        .also { gateway -> chat.sendEphemeral = gateway::sendEphemeral }
 
     private val bootLock = Mutex()
 

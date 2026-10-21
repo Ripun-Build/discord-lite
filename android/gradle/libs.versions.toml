@@ -15,6 +15,7 @@ tink = "1.24.0"
 libsignal = "0.105.0"
 sqlcipher = "4.19.1"
 androidxSqlite = "2.7.1"
+biometric = "1.1.0"
 desugarJdkLibs = "2.1.5"
 
 [libraries]
@@ -43,6 +44,7 @@ tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "
 libsignal-android = { module = "org.signal:libsignal-android", version.ref = "libsignal" }
 sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "androidxSqlite" }
+androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
 
