@@ -96,6 +96,21 @@ class SocialService(private val db: Db) {
         }
     }
 
+    /** One user's public profile, or 404 if they don't exist or a block is in place. */
+    suspend fun profile(viewer: UUID, target: UUID): PublicUser = db.tx {
+        if (!isVisibleTo(viewer, target) && viewer != target) throw notFound("user_not_found")
+        queryOne(
+            """
+            SELECT u.id, u.username, u.display_name, u.bio, f.requester_id, f.status
+            FROM users u
+            LEFT JOIN friendships f
+                   ON (f.requester_id = u.id AND f.addressee_id = ?) OR (f.addressee_id = u.id AND f.requester_id = ?)
+            WHERE u.id = ?
+            """.trimIndent(),
+            viewer, viewer, target,
+        ) { it.toPublicUser(viewer) } ?: throw notFound("user_not_found")
+    }
+
     suspend fun friends(viewer: UUID): FriendsResponse {
         val all = db.tx {
             query(

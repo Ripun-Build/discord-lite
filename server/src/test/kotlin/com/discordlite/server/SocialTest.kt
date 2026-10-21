@@ -115,6 +115,18 @@ class SocialTest {
     }
 
     @Test
+    fun `look up a profile by id, hidden once blocked`() = testApplication {
+        val app = startApp()
+        val http = jsonClient()
+        val alice = http.newUser(app)
+        val bob = http.newUser(app)
+        val seen = http.get("/v1/users/${bob.id}") { bearerAuth(alice.token) }.body<PublicUser>()
+        assertEquals(bob.username, seen.username)
+        http.put("/v1/blocks/${alice.id}") { bearerAuth(bob.token) }
+        assertEquals(HttpStatusCode.NotFound, http.get("/v1/users/${bob.id}") { bearerAuth(alice.token) }.status)
+    }
+
+    @Test
     fun `edit profile and DM setting`() = testApplication {
         val app = startApp()
         val http = jsonClient()

@@ -12,6 +12,8 @@ import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.runtime.Composable
+import com.discordlite.app.data.LocalAppContainer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -41,8 +43,8 @@ private sealed interface HomeSheet {
     data class Invite(val serverId: String) : HomeSheet
 }
 
-private val Tabs = listOf(
-    TabItem("Chats", Icons.Outlined.ChatBubbleOutline, Icons.Rounded.ChatBubble, badge = SampleData.chats.sumOf { it.unread }),
+private fun tabs(unread: Int) = listOf(
+    TabItem("Chats", Icons.Outlined.ChatBubbleOutline, Icons.Rounded.ChatBubble, badge = unread),
     TabItem("Servers", Icons.Outlined.Tag, Icons.Rounded.Tag),
     TabItem("Feed", Icons.Outlined.Explore, Icons.Rounded.Explore),
     TabItem("Profile", Icons.Outlined.AccountCircle, Icons.Rounded.AccountCircle),
@@ -61,6 +63,8 @@ fun HomeScreen(
     onEditProfile: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val conversations by LocalAppContainer.current.chat.conversations.collectAsStateWithLifecycle(emptyList())
+    val tabItems = tabs(conversations.sumOf { it.unread })
     var sheet by remember { mutableStateOf<HomeSheet?>(null) }
     // Keep the last sheet's content while it animates away.
     var lastSheet by remember { mutableStateOf<HomeSheet?>(null) }
@@ -80,14 +84,20 @@ fun HomeScreen(
             }
         }
         CompositionLocalProvider(LocalHazeState provides hazeState) {
-            FloatingTabBar(Tabs, tab, { tab = it }, Modifier.align(Alignment.BottomCenter))
+            FloatingTabBar(tabItems, tab, { tab = it }, Modifier.align(Alignment.BottomCenter))
         }
         SpringSheet(visible = sheet != null, onDismiss = { sheet = null }) {
             when (val s = lastSheet) {
-                HomeSheet.NewChat -> NewChatSheetContent(onOpenChat = {
-                    sheet = null
-                    onOpenChat(it)
-                })
+                HomeSheet.NewChat -> NewChatSheetContent(
+                    onOpenChat = {
+                        sheet = null
+                        onOpenChat(it)
+                    },
+                    onFindFriends = {
+                        sheet = null
+                        onOpenFriends()
+                    },
+                )
                 is HomeSheet.Invite -> InviteSheetContent(s.serverId)
                 null -> Unit
             }

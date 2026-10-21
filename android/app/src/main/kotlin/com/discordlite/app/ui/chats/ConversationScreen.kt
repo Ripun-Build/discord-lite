@@ -104,42 +104,6 @@ import java.time.format.DateTimeFormatter
 
 private val Replies = listOf("😂 no way", "say less", "ok I'm hopping on in 5", "lmaooo", "bet 🔥", "send the clip!!")
 
-/** A direct message or group DM. All demo state lives in memory. */
-@Composable
-fun ConversationScreen(chatId: String, onBack: () -> Unit) {
-    val chat = remember(chatId) { SampleData.chat(chatId) }
-    val colors = DlTheme.colors
-    MessageThread(
-        initial = chat.messages,
-        placeholder = "Message",
-        bubbles = true,
-        fakeReplies = chat.members,
-        onBack = onBack,
-        title = {
-            if (chat.isGroup) {
-                GroupAvatar(chat.members, 38.dp)
-            } else {
-                Avatar(chat.title, 38.dp, online = chat.online)
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(chat.title, style = DlTheme.type.headline, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Lock, null, tint = colors.success, modifier = Modifier.size(11.dp))
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        if (chat.isGroup) "${chat.members.size + 1} members · encrypted" else if (chat.online) "Online · encrypted" else "End-to-end encrypted",
-                        style = DlTheme.type.caption,
-                        color = colors.textSecondary,
-                    )
-                }
-            }
-        },
-        actions = { IconCircleButton(Icons.Rounded.Call, "Call (coming later)", {}, size = 38.dp) },
-        header = { EncryptionNotice() },
-    )
-}
-
 /** A server text channel: Discord-style rows (avatar + name + text) rather than bubbles. Not E2EE. */
 @Composable
 fun ChannelScreen(serverId: String, channelId: String, onBack: () -> Unit) {
@@ -275,7 +239,7 @@ private fun MessageThread(
  * the send button is) with a little momentum, so the cause and effect read spatially.
  */
 @Composable
-private fun Modifier.sendAnimation(active: Boolean, mine: Boolean, onDone: () -> Unit): Modifier {
+internal fun Modifier.sendAnimation(active: Boolean, mine: Boolean, onDone: () -> Unit): Modifier {
     if (!active) return this
     val reduced = DlTheme.reducedMotion
     // Width and height grow on different springs, so the bubble lands like a drop of jelly.
@@ -378,7 +342,7 @@ private fun ChannelMessage(message: Message, firstOfGroup: Boolean) {
 
 /** Three dots that breathe in sequence — a short, quick cycle, not a slow oscillation. */
 @Composable
-private fun TypingIndicator(name: String, bubble: Boolean, modifier: Modifier = Modifier) {
+internal fun TypingIndicator(name: String, bubble: Boolean, modifier: Modifier = Modifier) {
     val colors = DlTheme.colors
     val transition = rememberInfiniteTransition(label = "typing")
     Row(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -410,7 +374,7 @@ private fun TypingIndicator(name: String, bubble: Boolean, modifier: Modifier = 
 }
 
 @Composable
-private fun EncryptionNotice() {
+internal fun EncryptionNotice() {
     val colors = DlTheme.colors
     Box(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
         Row(
@@ -450,7 +414,7 @@ private fun ChannelWelcome(channel: String) {
  * from its own centre so the change reads as the same control transforming.
  */
 @Composable
-private fun Composer(
+internal fun Composer(
     draft: String,
     onDraftChange: (String) -> Unit,
     placeholder: String,

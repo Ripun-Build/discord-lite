@@ -32,7 +32,7 @@ import com.discordlite.app.ui.auth.SignUpScreen
 import com.discordlite.app.ui.auth.VerifyEmailScreen
 import com.discordlite.app.ui.auth.WelcomeScreen
 import com.discordlite.app.ui.chats.ChannelScreen
-import com.discordlite.app.ui.chats.ConversationScreen
+import com.discordlite.app.ui.chats.DirectChatScreen
 import com.discordlite.app.ui.home.HomeScreen
 import com.discordlite.app.ui.profile.SettingsScreen
 import com.discordlite.designsystem.theme.DlMotion
@@ -80,6 +80,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
     val session by container.account.session.collectAsStateWithLifecycle()
     LaunchedEffect(session) {
         if (session == null && container.account.sessionExpired) {
+            container.gateway.stop()
             container.social.clear()
             navController.navigate(SignInRoute(sessionExpired = true)) { popUpTo(navController.graph.id) { inclusive = true } }
         }
@@ -135,6 +136,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             LaunchedEffect(Unit) {
                 runCatching { container.account.loadMe() }
                 runCatching { container.social.refresh() }
+                container.startSession()
             }
             HomeScreen(
                 onOpenChat = { navController.navigate(ConversationRoute(it)) },
@@ -145,14 +147,14 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             )
         }
         composable<ConversationRoute> { entry ->
-            ConversationScreen(entry.toRoute<ConversationRoute>().chatId, onBack = navController::popBackStack)
+            DirectChatScreen(entry.toRoute<ConversationRoute>().chatId, onBack = navController::popBackStack)
         }
         composable<ChannelRoute> { entry ->
             val route = entry.toRoute<ChannelRoute>()
             ChannelScreen(route.serverId, route.channelId, onBack = navController::popBackStack)
         }
         composable<FriendsRoute> {
-            FriendsScreen(onBack = navController::popBackStack)
+            FriendsScreen(onBack = navController::popBackStack, onMessage = { navController.navigate(ConversationRoute(it)) })
         }
         composable<EditProfileRoute> {
             EditProfileScreen(onBack = navController::popBackStack)
@@ -162,8 +164,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onBack = navController::popBackStack,
                 onSignOut = {
                     scope.launch {
-                        container.account.signOut()
-                        container.social.clear()
+                        container.endSession()
                         navController.navigate(WelcomeRoute) { popUpTo(navController.graph.id) { inclusive = true } }
                     }
                 },

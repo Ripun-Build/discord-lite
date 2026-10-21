@@ -25,6 +25,10 @@ import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.material.icons.rounded.PersonAdd
+import com.discordlite.app.chat.Conversation
 import androidx.compose.foundation.layout.offset
 import com.discordlite.app.data.LocalAppContainer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,6 +57,7 @@ fun ChatsScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onOpenFrien
     val container = LocalAppContainer.current
     val me by container.account.me.collectAsStateWithLifecycle()
     val friends by container.social.friends.collectAsStateWithLifecycle()
+    val conversations by container.chat.conversations.collectAsStateWithLifecycle(emptyList())
     LargeTitleScreen(
         title = "Chats",
         actions = {
@@ -78,8 +83,13 @@ fun ChatsScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onOpenFrien
             }
         }
         item(key = "divider") { Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(0.5.dp).background(colors.separator)) }
-        SampleData.chats.forEachIndexed { index, chat ->
-            item(key = chat.id) { ChatRow(chat, Modifier.entrance(index, distance = 14.dp, baseDelayMs = 40L)) { onOpenChat(chat.id) } }
+        if (conversations.isEmpty()) {
+            item(key = "empty") { EmptyChats(onNewChat) }
+        }
+        conversations.forEachIndexed { index, conversation ->
+            item(key = conversation.peerId) {
+                ConversationRow(conversation, Modifier.entrance(index, distance = 14.dp, baseDelayMs = 40L)) { onOpenChat(conversation.peerId) }
+            }
         }
     }
 }
@@ -103,8 +113,9 @@ fun SearchField(placeholder: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ChatRow(chat: Chat, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun ConversationRow(conversation: Conversation, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val colors = DlTheme.colors
+    val unread = conversation.unread > 0
     Row(
         modifier
             .fillMaxWidth()
@@ -112,29 +123,58 @@ private fun ChatRow(chat: Chat, modifier: Modifier = Modifier, onClick: () -> Un
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (chat.isGroup) GroupAvatar(chat.members) else Avatar(chat.title, 56.dp, online = chat.online)
+        Avatar(conversation.displayName, 56.dp)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(chat.title, style = DlTheme.type.headline, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Text(chat.time, style = DlTheme.type.footnote, color = if (chat.unread > 0) colors.accent else colors.textTertiary)
+                Text(conversation.displayName, style = DlTheme.type.headline, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(listTimeLabel(conversation.lastAt), style = DlTheme.type.footnote, color = if (unread) colors.accent else colors.textTertiary)
             }
             Spacer(Modifier.height(3.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Lock, null, tint = colors.textTertiary, modifier = Modifier.size(12.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(
-                    chat.lastMessage,
+                    conversation.lastMessage.ifEmpty { "Say hi — messages are end-to-end encrypted" },
                     style = DlTheme.type.subheadline,
-                    color = if (chat.unread > 0) colors.textPrimary else colors.textSecondary,
+                    color = if (unread) colors.textPrimary else colors.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (chat.unread > 0) {
+                if (unread) {
                     Spacer(Modifier.width(8.dp))
-                    Badge(chat.unread)
+                    Badge(conversation.unread)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun EmptyChats(onNewChat: () -> Unit) {
+    val colors = DlTheme.colors
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(Icons.Rounded.Lock, null, tint = colors.accent, modifier = Modifier.size(40.dp))
+        Spacer(Modifier.height(14.dp))
+        Text("No chats yet", style = DlTheme.type.title3, color = colors.textPrimary)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Message a friend to start. Every chat is end-to-end encrypted — only you two can read it.",
+            style = DlTheme.type.subheadline,
+            color = colors.textSecondary,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        Spacer(Modifier.height(18.dp))
+        Box(
+            Modifier
+                .pressable(pressedScale = 0.95f, onClick = onNewChat)
+                .background(Brush.horizontalGradient(colors.accentGradient), androidx.compose.foundation.shape.CircleShape)
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+        ) { Text("New message", style = DlTheme.type.headline, color = Color.White) }
     }
 }
 
@@ -156,32 +196,38 @@ fun GroupAvatar(members: List<User>, size: androidx.compose.ui.unit.Dp = 56.dp) 
     }
 }
 
-/** Sheet content: start a DM, a group or join a server. */
+/** Sheet content: pick a friend to message (or find more friends). */
 @Composable
-fun NewChatSheetContent(onOpenChat: (String) -> Unit) {
+fun NewChatSheetContent(onOpenChat: (String) -> Unit, onFindFriends: () -> Unit) {
     val colors = DlTheme.colors
+    val friends by LocalAppContainer.current.social.friends.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxWidth()) {
         Text("New message", style = DlTheme.type.title3, color = colors.textPrimary, modifier = Modifier.padding(horizontal = 20.dp))
         Spacer(Modifier.height(12.dp))
-        SearchField("Search friends by name or @username", Modifier.padding(horizontal = 16.dp))
-        Spacer(Modifier.height(12.dp))
-        SheetAction(Icons.Rounded.Group, "New group", "Up to 25 friends, end-to-end encrypted")
-        SheetAction(Icons.Rounded.Tag, "Join a server", "Paste an invite link")
+        SheetAction(Icons.Rounded.PersonAdd, "Find friends", "Search by @username", onFindFriends)
+        SheetAction(Icons.Rounded.Group, "New group", "Coming in the next update") {}
         Spacer(Modifier.height(8.dp))
         Text("FRIENDS", style = DlTheme.type.micro, color = colors.textSecondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-        SampleData.friends.take(5).forEach { friend ->
-            val chat = SampleData.chats.firstOrNull { !it.isGroup && it.members.first().id == friend.id }
+        if (friends.friends.isEmpty()) {
+            Text(
+                "Add a friend first — you can message anyone on your friends list.",
+                style = DlTheme.type.subheadline,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+            )
+        }
+        friends.friends.forEach { friend ->
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .pressable(pressedScale = 0.985f, highlight = colors.textPrimary.copy(alpha = 0.06f)) { chat?.let { onOpenChat(it.id) } }
+                    .pressable(pressedScale = 0.985f, highlight = colors.textPrimary.copy(alpha = 0.06f)) { onOpenChat(friend.id) }
                     .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Avatar(friend.name, 44.dp, online = friend.online)
+                Avatar(friend.displayName, 44.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(friend.name, style = DlTheme.type.headline, color = colors.textPrimary)
+                    Text(friend.displayName, style = DlTheme.type.headline, color = colors.textPrimary)
                     Text("@${friend.username}", style = DlTheme.type.footnote, color = colors.textSecondary)
                 }
                 Icon(Icons.Rounded.Lock, "End-to-end encrypted", tint = colors.textTertiary, modifier = Modifier.size(16.dp))
@@ -191,12 +237,12 @@ fun NewChatSheetContent(onOpenChat: (String) -> Unit) {
 }
 
 @Composable
-private fun SheetAction(icon: ImageVector, title: String, subtitle: String) {
+private fun SheetAction(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
     val colors = DlTheme.colors
     Row(
         Modifier
             .fillMaxWidth()
-            .pressable(pressedScale = 0.985f, highlight = colors.textPrimary.copy(alpha = 0.06f)) {}
+            .pressable(pressedScale = 0.985f, highlight = colors.textPrimary.copy(alpha = 0.06f), onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

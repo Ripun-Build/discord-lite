@@ -14,6 +14,8 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        // Real phones (64- and 32-bit ARM) plus 64-bit emulators. Old 32-bit x86 emulators are dropped.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
     buildTypes.configureEach {
@@ -35,11 +37,29 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // libsignal uses newer Java APIs; desugaring makes them work back to Android 9.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    packaging {
+        resources {
+            // libsignal's JVM jar also carries desktop native libraries; phones use the .so files
+            // from libsignal-android instead, so keep the desktop ones out of the APK.
+            excludes += listOf("libsignal_jni*.dylib", "libsignal_jni*.so", "signal_jni*.dll")
+        }
+        jniLibs {
+            // libsignal ships a separate testing build of its native library; the app never loads it.
+            excludes += listOf("**/libsignal_jni_testing.so")
+            // Store native libraries compressed (they're extracted on install). libsignal's library
+            // includes debug symbols and compresses very well; release builds will be split per CPU
+            // type by the Play Store's App Bundle anyway.
+            useLegacyPackaging = true
+        }
     }
 }
 
@@ -57,6 +77,12 @@ dependencies {
     implementation(libs.retrofit.kotlinx.serialization)
     implementation(libs.okhttp)
     implementation(libs.tink.android)
+    implementation(libs.libsignal.android)
+    implementation(libs.sqlcipher.android)
+    implementation(libs.androidx.sqlite)
+    implementation(libs.androidx.lifecycle.process)
+
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     debugImplementation(libs.compose.ui.tooling)
 }

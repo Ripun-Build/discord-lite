@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PersonAdd
@@ -77,7 +78,7 @@ import com.discordlite.designsystem.theme.rememberHaptics
  * (Requests → Friends) when their state changes, instead of popping.
  */
 @Composable
-fun FriendsScreen(onBack: () -> Unit) {
+fun FriendsScreen(onBack: () -> Unit, onMessage: (String) -> Unit) {
     val container = LocalAppContainer.current
     val vm: FriendsViewModel = viewModel { FriendsViewModel(container.social) }
     val friends by container.social.friends.collectAsStateWithLifecycle()
@@ -99,6 +100,10 @@ fun FriendsScreen(onBack: () -> Unit) {
                 selected?.let { user ->
                     FriendOptions(
                         user = user,
+                        onMessage = {
+                            selected = null
+                            onMessage(user.id)
+                        },
                         onUnfriend = {
                             vm.unfriend(user.id)
                             selected = null
@@ -302,7 +307,7 @@ private fun CircleAction(
 }
 
 @Composable
-private fun FriendOptions(user: PublicUser, onUnfriend: () -> Unit, onBlock: () -> Unit) {
+private fun FriendOptions(user: PublicUser, onMessage: () -> Unit, onUnfriend: () -> Unit, onBlock: () -> Unit) {
     val colors = DlTheme.colors
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -317,6 +322,7 @@ private fun FriendOptions(user: PublicUser, onUnfriend: () -> Unit, onBlock: () 
             Text(user.bio, style = DlTheme.type.callout, color = colors.textPrimary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
         }
         Spacer(Modifier.height(8.dp))
+        OptionRow(Icons.Rounded.ChatBubble, "Message", colors.accent, onMessage)
         OptionRow(Icons.Rounded.PersonRemove, "Remove friend", colors.textPrimary, onUnfriend)
         OptionRow(Icons.Rounded.Block, "Block @${user.username}", colors.danger, onBlock)
         Text(

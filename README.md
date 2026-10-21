@@ -2,11 +2,11 @@
 
 A privacy-first, end-to-end encrypted real-time chat app for Android.
 
-- **Client:** Kotlin, Jetpack Compose, Room + SQLCipher, libsignal
+- **Client:** Kotlin, Jetpack Compose, SQLCipher (encrypted local database), libsignal
 - **Backend:** Kotlin + Ktor, PostgreSQL, Redis, S3-compatible blob storage
-- **Security:** Signal Protocol (PQXDH + Double Ratchet), sealed sender, no phone numbers, no contact upload, minimal server metadata
+- **Security:** Signal Protocol (PQXDH + Double Ratchet) for DMs, no phone numbers, no contact upload, minimal server metadata (sealed sender planned)
 
-Status: Phase 1 — accounts and friends (email sign-up, verification codes, profiles, friend requests, blocking).
+Status: Phase 2 in progress — end-to-end encrypted 1:1 chat (Signal Protocol) works; receipts, typing, app lock and push are next.
 
 ## Repo layout
 
@@ -42,4 +42,14 @@ cd android && ./gradlew :app:installDebug   # needs a running emulator or connec
 
 The emulator reaches the local server at `http://10.0.2.2:8080`. On a real phone on the same Wi-Fi, build with `./gradlew :app:installDebug -PapiBaseUrl=http://<your-mac-ip>:8080/`.
 
-Accounts, profiles and friends are real. Chats, servers, stories and the feed still use sample data until their phases.
+### Test friend: @echobot
+
+With the server running, start a bot that replies to whatever you send it — encrypted end to end with real Signal keys, like a second phone:
+
+```bash
+cd server && ./gradlew echoBot
+```
+
+In the app: Friends → search `echobot` → Add (it accepts automatically) → Message.
+
+Accounts, profiles, friends and 1:1 chats are real. Servers, stories and the feed still use sample data until their phases.
