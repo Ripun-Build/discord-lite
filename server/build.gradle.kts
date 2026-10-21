@@ -25,6 +25,7 @@ dependencies {
     implementation(libs.ktor.server.auth)
     implementation(libs.ktor.server.auth.jwt)
     implementation(libs.ktor.server.rate.limit)
+    implementation(libs.ktor.server.websockets)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.logback.classic)
     implementation(libs.hikari)
@@ -37,6 +38,8 @@ dependencies {
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
     testImplementation(libs.testcontainers.postgresql)
+    // Tests act as real Signal clients so the full encrypt → relay → decrypt path is exercised.
+    testImplementation(libs.libsignal.client)
     testImplementation(kotlin("test"))
 }
 

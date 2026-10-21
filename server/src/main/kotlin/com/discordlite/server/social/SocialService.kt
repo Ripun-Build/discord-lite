@@ -195,6 +195,12 @@ class SocialService(private val db: Db) {
         }
     }
 
+    /** True if either user has blocked the other. */
+    suspend fun isBlocked(a: UUID, b: UUID): Boolean = db.tx { blockedEitherWay(a, b) }
+
+    /** A verified account that hasn't blocked (and isn't blocked by) [viewer]. */
+    suspend fun isVisible(viewer: UUID, target: UUID): Boolean = db.tx { isVisibleTo(viewer, target) }
+
     private fun Connection.isVisibleTo(viewer: UUID, target: UUID): Boolean =
         queryOne("SELECT 1 FROM users WHERE id = ? AND email_verified", target) { true } == true &&
             !blockedEitherWay(viewer, target)

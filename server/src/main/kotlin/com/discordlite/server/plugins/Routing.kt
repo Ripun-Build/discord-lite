@@ -2,6 +2,7 @@ package com.discordlite.server.plugins
 
 import com.discordlite.server.AppDeps
 import com.discordlite.server.auth.authRoutes
+import com.discordlite.server.messaging.messagingRoutes
 import com.discordlite.server.social.socialRoutes
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
@@ -23,6 +24,7 @@ fun Application.configureRouting(deps: AppDeps) {
         authRoutes(deps.auth, deps.tokens)
         authenticate(ACCESS_AUTH) {
             socialRoutes(deps.social)
+            messagingRoutes(deps.keys, deps.messages, deps.gateway)
         }
     }
 }
