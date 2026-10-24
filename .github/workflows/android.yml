@@ -23,5 +23,30 @@ jobs:
           distribution: temurin
           java-version: "25"
       - uses: gradle/actions/setup-gradle@v6
+      # The real Firebase config is git-ignored (it stays on the developer's machine). CI only
+      # checks that the app compiles, so a placeholder with fake values is enough.
+      - name: Placeholder google-services.json
+        run: |
+          [ -f app/google-services.json ] || cat > app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "discord-lite-ci",
+              "storage_bucket": "discord-lite-ci.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": { "package_name": "com.discordlite.app" }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "ci-placeholder-not-a-real-key" }],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --console=plain
