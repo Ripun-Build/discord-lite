@@ -93,3 +93,4 @@ data class PreKeyBundleResponse(
 @Serializable data class SendMessageResponse(val id: Long, val sentAt: Long)
 @Serializable data class AckBody(val ids: List<Long>)
 @Serializable data class GatewayFrame(val t: String, val envelope: Envelope? = null, val ids: List<Long>? = null, val to: String? = null)
+@Serializable data class PushTokenBody(val token: String)

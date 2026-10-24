@@ -164,6 +164,37 @@ class MessagingTest {
     }
 
     @Test
+    fun `offline recipients get a content-free wake-up push, online ones don't`() = testApplication {
+        val pusher = CapturingPusher()
+        val app = startApp(pusher)
+        val http = jsonClient()
+        val ws = createClient { install(WebSockets) }
+        val (alice, aliceSignal) = http.signalUser(app)
+        val (bob, _) = http.signalUser(app)
+        http.befriend(alice, bob)
+        assertEquals(HttpStatusCode.NoContent, http.put("/v1/push/token") {
+            bearerAuth(bob.token)
+            contentType(ContentType.Application.Json)
+            setBody(mapOf("token" to "fake-fcm-token"))
+        }.status)
+        aliceSignal.startSession(http.get("/v1/keys/${bob.id}") { bearerAuth(alice.token) }.body())
+
+        // Bob is offline: he gets woken.
+        http.sendEncrypted(alice, bob, aliceSignal.encrypt(bob.id, "you there?"))
+        kotlinx.coroutines.delay(300)
+        assertEquals(listOf(UUID.fromString(bob.id)), pusher.woken.toList())
+
+        // Bob is connected: the message goes over the socket, no push.
+        pusher.woken.clear()
+        ws.webSocket("/v1/gateway", request = { bearerAuth(bob.token) }) {
+            while (nextFrame().t != "ready") Unit
+            http.sendEncrypted(alice, bob, aliceSignal.encrypt(bob.id, "never mind, I see you"))
+            assertEquals("message", nextFrame().t)
+        }
+        assertTrue(pusher.woken.isEmpty())
+    }
+
+    @Test
     fun `each bundle uses up a one-time key, then falls back to the last-resort key`() = testApplication {
         val app = startApp()
         val http = jsonClient()

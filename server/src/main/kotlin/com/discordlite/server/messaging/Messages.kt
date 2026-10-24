@@ -9,7 +9,11 @@ import com.discordlite.server.db.exec
 import com.discordlite.server.db.query
 import com.discordlite.server.db.queryOne
 import com.discordlite.server.db.uuid
+import com.discordlite.server.push.NoPush
+import com.discordlite.server.push.Pusher
 import com.discordlite.server.social.SocialService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import io.ktor.http.HttpStatusCode
 import kotlinx.serialization.Serializable
 import java.sql.Connection
@@ -55,6 +59,8 @@ class MessageService(
     private val keys: KeyService,
     private val social: SocialService,
     private val gateway: Gateway,
+    private val pusher: Pusher = NoPush,
+    private val scope: CoroutineScope? = null,
 ) {
 
     suspend fun bundleFor(requester: UUID, target: UUID): PreKeyBundleDto {
@@ -91,7 +97,11 @@ class MessageService(
                 ?: (queryOne("SELECT $COLUMNS FROM message_queue WHERE sender_id = ? AND client_id = ?", sender, clientId) { it.toEnvelope() }
                     ?: throw ApiException(HttpStatusCode.Conflict, "already_delivered")) to false
         }
-        if (envelope.second) gateway.deliver(recipient, envelope.first)
+        if (envelope.second) {
+            gateway.deliver(recipient, envelope.first)
+            // Not connected right now: wake their phone (content-free push) so it fetches this.
+            if (!gateway.isOnline(recipient)) scope?.launch { runCatching { pusher.wake(recipient) } }
+        }
         return SendMessageResponse(envelope.first.id, envelope.first.sentAt)
     }
 

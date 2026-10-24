@@ -23,6 +23,15 @@ import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.hours
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
+import com.discordlite.server.push.FcmPusher
+import com.discordlite.server.push.NoPush
+import com.discordlite.server.push.PushTokens
+import com.discordlite.server.push.Pusher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import org.slf4j.LoggerFactory
+import java.io.File
 import javax.sql.DataSource
 
 fun main(args: Array<String>) {
@@ -30,14 +39,21 @@ fun main(args: Array<String>) {
 }
 
 /** Everything the routes need, built once. Tests build their own with a test database and mailer. */
-class AppDeps(val config: AppConfig, dataSource: DataSource, mailer: Mailer) {
+class AppDeps(val config: AppConfig, dataSource: DataSource, mailer: Mailer, pusher: Pusher? = null) {
+    /** Background work that shouldn't hold up a request (e.g. sending pushes). */
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val db = Db(dataSource)
     val tokens = TokenService(config, db)
     val auth = AuthService(db, tokens, Codes(config.codePepper), mailer)
     val social = SocialService(db)
     val gateway = Gateway()
     val keys = KeyService(db)
-    val messages = MessageService(db, keys, social, gateway)
+    val pushTokens = PushTokens(db)
+    val pusher: Pusher = pusher ?: config.firebaseServiceAccount
+        ?.takeIf { File(it).isFile }
+        ?.let { FcmPusher(it, pushTokens) }
+        ?: NoPush.also { LoggerFactory.getLogger("Push").info("Push notifications are off (FIREBASE_SERVICE_ACCOUNT not set)") }
+    val messages = MessageService(db, keys, social, gateway, this.pusher, scope)
 }
 
 fun Application.module() {

@@ -63,6 +63,9 @@ data class ChatMessage(
     val status: MessageStatus,
 )
 
+/** A newly received message, for notifications. */
+data class IncomingText(val peerId: String, val displayName: String, val text: String)
+
 data class Conversation(
     val peerId: String,
     val displayName: String,
@@ -145,8 +148,12 @@ class ChatRepository(
 
     fun conversation(peerId: String): Flow<Conversation?> = conversations.map { list -> list.firstOrNull { it.peerId == peerId } }
 
+    /** Called when a chat opens, e.g. to clear its notification. */
+    var onChatOpened: ((String) -> Unit)? = null
+
     suspend fun open(peerId: String) {
         openPeer = peerId
+        onChatOpened?.invoke(peerId)
         withContext(Dispatchers.IO) {
             ensureConversation(peerId)
             db.exec("UPDATE conversations SET unread = 0 WHERE peer_id = ?", peerId)
@@ -240,6 +247,8 @@ class ChatRepository(
         } catch (e: ApiError) {
             // No connection: leave it "sending"; it goes out when the gateway reconnects.
             if (e.code != "network") setStatus(peerId, clientId, MessageStatus.FAILED)
+            if (e.code == "no_keys") explainNoKeys(peerId)
+            if (e.code == "dm_not_allowed") explainOnce(peerId, "This person only accepts messages from some people. Ask them to add you as a friend.")
         } catch (e: Exception) {
             setStatus(peerId, clientId, MessageStatus.FAILED)
         }
@@ -281,7 +290,8 @@ class ChatRepository(
      * Decrypts and stores one incoming envelope. Always returns normally so the gateway can
      * acknowledge it — a message that can't be decrypted leaves a notice instead of looping.
      */
-    suspend fun receive(envelope: Envelope) {
+    suspend fun receive(envelope: Envelope): IncomingText? {
+        var incoming: IncomingText? = null
         val plain = runCatching {
             crypto.withLock {
                 withContext(Dispatchers.Default) {
@@ -303,7 +313,11 @@ class ChatRepository(
                     "text" -> if (payload.text != null) {
                         val isNew = storeIncoming(envelope.senderId, payload.id, payload.text, payload.ts.takeIf { it > 0 } ?: envelope.sentAt)
                         setTyping(envelope.senderId, false)
-                        if (isNew) afterIncoming(envelope.senderId, payload.id)
+                        if (isNew) {
+                            afterIncoming(envelope.senderId, payload.id)
+                            val name = db.queryOne("SELECT display_name FROM conversations WHERE peer_id = ?", envelope.senderId) { it.str("display_name") }
+                            incoming = IncomingText(envelope.senderId, name ?: "Someone", payload.text)
+                        }
                     }
                     "receipt" -> applyReceipt(envelope.senderId, payload.state, payload.ids.orEmpty())
                     "typing" -> setTyping(envelope.senderId, payload.state == "on")
@@ -314,6 +328,22 @@ class ChatRepository(
                     notice(envelope.senderId, "A message couldn't be decrypted. Ask them to send it again.")
                 }
             }
+        }
+        bump()
+        return incoming
+    }
+
+    private suspend fun explainNoKeys(peerId: String) =
+        explainOnce(peerId, "Can't send yet: they haven't opened discord-lite since signing up, so there are no encryption keys to send to.")
+
+    /** Adds a notice unless the latest notice in this chat already says the same thing. */
+    private suspend fun explainOnce(peerId: String, text: String) {
+        withContext(Dispatchers.IO) {
+            val last = db.queryOne(
+                "SELECT body FROM messages WHERE peer_id = ? AND status = ? ORDER BY sent_at DESC, local_id DESC LIMIT 1",
+                peerId, MessageStatus.NOTICE.name,
+            ) { it.str("body") }
+            if (last != text) notice(peerId, text)
         }
         bump()
     }

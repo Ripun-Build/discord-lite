@@ -44,6 +44,9 @@ interface DiscordLiteApi {
     @POST("v1/messages") suspend fun sendMessage(@Body body: SendMessageBody): SendMessageResponse
     @GET("v1/messages") suspend fun pendingMessages(): List<Envelope>
     @POST("v1/messages/ack") suspend fun ack(@Body body: AckBody): Response<Unit>
+
+    @PUT("v1/push/token") suspend fun savePushToken(@Body body: PushTokenBody): Response<Unit>
+    @DELETE("v1/push/token") suspend fun deletePushToken(): Response<Unit>
 }
 
 /** Used only by the token refresher, on a client without the auth interceptor (so no loops). */

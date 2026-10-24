@@ -2,10 +2,13 @@ package com.discordlite.server.messaging
 
 import com.discordlite.server.common.notFound
 import com.discordlite.server.plugins.userId
+import com.discordlite.server.push.PushTokenRequest
+import com.discordlite.server.push.PushTokens
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
@@ -16,7 +19,18 @@ import io.ktor.websocket.readText
 import java.util.UUID
 
 /** All routes here require a signed-in user (mounted inside `authenticate`). */
-fun Route.messagingRoutes(keys: KeyService, messages: MessageService, gateway: Gateway) {
+fun Route.messagingRoutes(keys: KeyService, messages: MessageService, gateway: Gateway, pushTokens: PushTokens) {
+    route("/v1/push/token") {
+        put {
+            pushTokens.save(call.userId, call.receive<PushTokenRequest>().token)
+            call.respond(HttpStatusCode.NoContent)
+        }
+        delete {
+            pushTokens.remove(call.userId)
+            call.respond(HttpStatusCode.NoContent)
+        }
+    }
+
     route("/v1/keys") {
         put {
             keys.upload(call.userId, call.receive())
