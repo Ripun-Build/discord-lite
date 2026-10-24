@@ -54,6 +54,32 @@ interface DiscordLiteApi {
     @DELETE("v1/groups/{groupId}/members/{userId}") suspend fun removeGroupMember(@Path("groupId") groupId: String, @Path("userId") userId: String): Response<Unit>
     @POST("v1/groups/{groupId}/messages") suspend fun sendGroupMessage(@Path("groupId") groupId: String, @Body body: SendGroupMessageBody): SendMessageResponse
 
+    @GET("v1/servers") suspend fun servers(): List<ServerSummaryResponse>
+    @POST("v1/servers") suspend fun createServer(@Body body: CreateServerBody): ServerResponse
+    @GET("v1/servers/{serverId}") suspend fun server(@Path("serverId") serverId: String): ServerResponse
+    @PATCH("v1/servers/{serverId}") suspend fun renameServer(@Path("serverId") serverId: String, @Body body: RenameServerBody): ServerResponse
+    @DELETE("v1/servers/{serverId}") suspend fun deleteServer(@Path("serverId") serverId: String): Response<Unit>
+    @GET("v1/servers/{serverId}/members") suspend fun serverMembers(@Path("serverId") serverId: String): List<ServerMemberResponse>
+    @POST("v1/servers/{serverId}/members") suspend fun addServerMembers(@Path("serverId") serverId: String, @Body body: AddMembersBody): ServerResponse
+    /** Your own id = leave. */
+    @DELETE("v1/servers/{serverId}/members/{userId}") suspend fun removeServerMember(@Path("serverId") serverId: String, @Path("userId") userId: String): Response<Unit>
+    @PUT("v1/servers/{serverId}/members/{userId}/roles") suspend fun setMemberRoles(@Path("serverId") serverId: String, @Path("userId") userId: String, @Body body: RoleIdsBody): Response<Unit>
+    @POST("v1/servers/{serverId}/roles") suspend fun createRole(@Path("serverId") serverId: String, @Body body: RoleBody): ServerResponse
+    @PATCH("v1/servers/{serverId}/roles/{roleId}") suspend fun updateRole(@Path("serverId") serverId: String, @Path("roleId") roleId: String, @Body body: RoleBody): ServerResponse
+    @DELETE("v1/servers/{serverId}/roles/{roleId}") suspend fun deleteRole(@Path("serverId") serverId: String, @Path("roleId") roleId: String): ServerResponse
+    @POST("v1/servers/{serverId}/channels") suspend fun createChannel(@Path("serverId") serverId: String, @Body body: CreateChannelBody): ServerResponse
+    @POST("v1/servers/{serverId}/categories") suspend fun createCategory(@Path("serverId") serverId: String, @Body body: CategoryBody): ServerResponse
+    @PATCH("v1/servers/{serverId}/categories/{categoryId}") suspend fun renameCategory(@Path("serverId") serverId: String, @Path("categoryId") categoryId: String, @Body body: CategoryBody): ServerResponse
+    @DELETE("v1/servers/{serverId}/categories/{categoryId}") suspend fun deleteCategory(@Path("serverId") serverId: String, @Path("categoryId") categoryId: String): ServerResponse
+    @PATCH("v1/channels/{channelId}") suspend fun updateChannel(@Path("channelId") channelId: String, @Body body: UpdateChannelBody): ServerResponse
+    @DELETE("v1/channels/{channelId}") suspend fun deleteChannel(@Path("channelId") channelId: String): ServerResponse
+    @GET("v1/channels/{channelId}/messages") suspend fun channelMessages(@Path("channelId") channelId: String, @Query("before") before: Long? = null, @Query("limit") limit: Int = 50): List<ChannelMessageResponse>
+    @POST("v1/channels/{channelId}/messages") suspend fun sendChannelMessage(@Path("channelId") channelId: String, @Body body: SendChannelMessageBody): ChannelMessageResponse
+    @DELETE("v1/channels/{channelId}/messages/{messageId}") suspend fun deleteChannelMessage(@Path("channelId") channelId: String, @Path("messageId") messageId: Long): Response<Unit>
+    @POST("v1/channels/{channelId}/read") suspend fun markChannelRead(@Path("channelId") channelId: String, @Body body: ReadBody): Response<Unit>
+    @GET("v1/mentions") suspend fun mentions(): List<MentionResponse>
+    @POST("v1/mentions/ack") suspend fun ackMentions(@Body body: MentionAckBody): Response<Unit>
+
     @PUT("v1/push/token") suspend fun savePushToken(@Body body: PushTokenBody): Response<Unit>
     @DELETE("v1/push/token") suspend fun deletePushToken(): Response<Unit>
 }

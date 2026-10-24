@@ -93,6 +93,11 @@ class GatewayClient(
         socket?.send(ApiClient.json.encodeToString(GatewayFrame.serializer(), frame))
     }
 
+    /** "I'm typing in this server channel." Only a hint; dropped if offline. */
+    fun sendChannelTyping(channelId: String) {
+        socket?.send(ApiClient.json.encodeToString(GatewayFrame.serializer(), GatewayFrame("channel_typing", channelId = channelId)))
+    }
+
     private fun ack(id: Long) {
         val frame = ApiClient.json.encodeToString(GatewayFrame.serializer(), GatewayFrame("ack", ids = listOf(id)))
         socket?.send(frame)
@@ -118,7 +123,8 @@ class GatewayClient(
         override fun onMessage(webSocket: WebSocket, text: String) {
             val frame = runCatching { ApiClient.json.decodeFromString(GatewayFrame.serializer(), text) }.getOrNull() ?: return
             when (frame.t) {
-                "message", "group", "group_removed" -> inbox.trySend(frame)
+                "message", "group", "group_removed",
+                "channel_message", "channel_message_deleted", "channel_typing", "server", "server_removed" -> inbox.trySend(frame)
                 "ready" -> {
                     _state.value = State.Online
                     scope.launch { runCatching { onReady() } }

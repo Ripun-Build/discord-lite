@@ -203,8 +203,10 @@ class SocialService(private val db: Db) {
         val friends = pairRow(sender, recipient)?.accepted == true
         when (policy) {
             DmPolicy.EVERYONE -> true
-            // Shared servers arrive in Phase 4; until then this is the same as friends-only.
-            DmPolicy.FRIENDS_AND_SERVERS -> friends
+            DmPolicy.FRIENDS_AND_SERVERS -> friends || queryOne(
+                "SELECT 1 FROM server_members x JOIN server_members y ON y.server_id = x.server_id WHERE x.user_id = ? AND y.user_id = ? LIMIT 1",
+                sender, recipient,
+            ) { true } == true
             DmPolicy.FRIENDS -> friends
             DmPolicy.NOBODY -> false
         }

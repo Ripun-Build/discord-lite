@@ -159,7 +159,7 @@ fun NewGroupSheetContent(onCancel: () -> Unit, onCreated: (String) -> Unit) {
 
 /** "Cancel · Title · Action" row at the top of a sheet. */
 @Composable
-private fun SheetHeader(title: String, onCancel: () -> Unit, confirm: String, confirmEnabled: Boolean, onConfirm: () -> Unit) {
+internal fun SheetHeader(title: String, onCancel: () -> Unit, confirm: String, confirmEnabled: Boolean, onConfirm: () -> Unit) {
     val colors = DlTheme.colors
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         TextAction("Cancel", onCancel, Modifier.weight(1f).padding(vertical = 8.dp), color = colors.accent)
@@ -180,7 +180,7 @@ private fun SheetHeader(title: String, onCancel: () -> Unit, confirm: String, co
  * shown as "In group" and can't be picked; at most [limit] can be picked.
  */
 @Composable
-private fun PeoplePicker(selected: List<String>, onToggle: (String) -> Unit, limit: Int, alreadyIn: Set<String> = emptySet()) {
+internal fun PeoplePicker(selected: List<String>, onToggle: (String) -> Unit, limit: Int, alreadyIn: Set<String> = emptySet()) {
     val colors = DlTheme.colors
     val haptics = rememberHaptics()
     val friends by LocalAppContainer.current.social.friends.collectAsStateWithLifecycle()
@@ -279,7 +279,7 @@ private fun PickerRow(friend: PublicUser, picked: Boolean, inGroup: Boolean, ena
 
 /** Empty ring, or a filled accent circle whose check pops in on a spring. */
 @Composable
-private fun CheckCircle(checked: Boolean) {
+internal fun CheckCircle(checked: Boolean) {
     val colors = DlTheme.colors
     Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) {
         Box(Modifier.size(24.dp).border(1.5.dp, colors.textTertiary.copy(alpha = 0.6f), CircleShape))
@@ -678,7 +678,7 @@ fun GroupInfoScreen(groupId: String, onBack: () -> Unit, onLeft: () -> Unit) {
 }
 
 @Composable
-private fun InfoHeader(text: String) {
+internal fun InfoHeader(text: String) {
     Text(
         text.uppercase(),
         style = DlTheme.type.micro,
@@ -688,7 +688,7 @@ private fun InfoHeader(text: String) {
 }
 
 @Composable
-private fun InfoFooter(text: String) {
+internal fun InfoFooter(text: String) {
     Text(text, style = DlTheme.type.footnote, color = DlTheme.colors.textTertiary, modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp))
 }
 
@@ -697,7 +697,7 @@ private fun InfoFooter(text: String) {
  * and on release the flick's projected end decides open vs closed; a spring carries the velocity.
  */
 @Composable
-private fun SwipeToReveal(enabled: Boolean, action: String, onAction: () -> Unit, content: @Composable () -> Unit) {
+internal fun SwipeToReveal(enabled: Boolean, action: String, onAction: () -> Unit, content: @Composable () -> Unit) {
     val colors = DlTheme.colors
     val scope = rememberCoroutineScope()
     val revealPx = with(LocalDensity.current) { 92.dp.toPx() }

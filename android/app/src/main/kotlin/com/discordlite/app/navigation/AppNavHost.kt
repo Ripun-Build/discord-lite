@@ -31,7 +31,12 @@ import com.discordlite.app.ui.auth.SignInScreen
 import com.discordlite.app.ui.auth.SignUpScreen
 import com.discordlite.app.ui.auth.VerifyEmailScreen
 import com.discordlite.app.ui.auth.WelcomeScreen
-import com.discordlite.app.ui.chats.ChannelScreen
+import com.discordlite.app.ui.servers.RoleEditScreen
+import com.discordlite.app.ui.servers.ServerChannelScreen
+import com.discordlite.app.ui.servers.ServerChannelsScreen
+import com.discordlite.app.ui.servers.ServerMembersScreen
+import com.discordlite.app.ui.servers.ServerRolesScreen
+import com.discordlite.app.ui.servers.ServerSettingsScreen
 import com.discordlite.app.ui.chats.DirectChatScreen
 import com.discordlite.app.ui.chats.GroupChatScreen
 import com.discordlite.app.ui.chats.GroupInfoScreen
@@ -51,6 +56,11 @@ import kotlinx.serialization.Serializable
 @Serializable data class GroupChatRoute(val groupId: String)
 @Serializable data class GroupInfoRoute(val groupId: String)
 @Serializable data class ChannelRoute(val serverId: String, val channelId: String)
+@Serializable data class ServerSettingsRoute(val serverId: String)
+@Serializable data class ServerChannelsRoute(val serverId: String)
+@Serializable data class ServerRolesRoute(val serverId: String)
+@Serializable data class RoleEditRoute(val serverId: String, val roleId: String? = null)
+@Serializable data class ServerMembersRoute(val serverId: String)
 @Serializable object SettingsRoute
 @Serializable object FriendsRoute
 @Serializable object EditProfileRoute
@@ -95,7 +105,12 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
     LaunchedEffect(openChat) {
         val peer = openChat ?: return@LaunchedEffect
         if (container.account.isSignedIn) {
-            val route: Any = if (container.groups.isGroup(peer)) GroupChatRoute(peer) else ConversationRoute(peer)
+            val channel = peer.takeIf { it.startsWith("channel:") }?.split(':')
+            val route: Any = when {
+                channel != null && channel.size == 3 -> ChannelRoute(channel[1], channel[2])
+                container.groups.isGroup(peer) -> GroupChatRoute(peer)
+                else -> ConversationRoute(peer)
+            }
             navController.navigate(route) { launchSingleTop = true }
         }
         container.openChatRequests.value = null
@@ -157,6 +172,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onOpenChat = { navController.navigate(ConversationRoute(it)) },
                 onOpenGroup = { navController.navigate(GroupChatRoute(it)) },
                 onOpenChannel = { server, channel -> navController.navigate(ChannelRoute(server, channel)) },
+                onOpenServerSettings = { navController.navigate(ServerSettingsRoute(it)) },
                 onOpenSettings = { navController.navigate(SettingsRoute) },
                 onOpenFriends = { navController.navigate(FriendsRoute) },
                 onEditProfile = { navController.navigate(EditProfileRoute) },
@@ -179,7 +195,33 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         }
         composable<ChannelRoute> { entry ->
             val route = entry.toRoute<ChannelRoute>()
-            ChannelScreen(route.serverId, route.channelId, onBack = navController::popBackStack)
+            ServerChannelScreen(route.serverId, route.channelId, onBack = navController::popBackStack)
+        }
+        composable<ServerSettingsRoute> { entry ->
+            val serverId = entry.toRoute<ServerSettingsRoute>().serverId
+            ServerSettingsScreen(
+                serverId,
+                onBack = navController::popBackStack,
+                onOpenChannels = { navController.navigate(ServerChannelsRoute(serverId)) },
+                onOpenRoles = { navController.navigate(ServerRolesRoute(serverId)) },
+                onOpenMembers = { navController.navigate(ServerMembersRoute(serverId)) },
+                // Left or deleted: back to the server list.
+                onGone = { navController.popBackStack<HomeRoute>(inclusive = false) },
+            )
+        }
+        composable<ServerChannelsRoute> { entry ->
+            ServerChannelsScreen(entry.toRoute<ServerChannelsRoute>().serverId, onBack = navController::popBackStack)
+        }
+        composable<ServerRolesRoute> { entry ->
+            val serverId = entry.toRoute<ServerRolesRoute>().serverId
+            ServerRolesScreen(serverId, onBack = navController::popBackStack, onOpenRole = { navController.navigate(RoleEditRoute(serverId, it)) })
+        }
+        composable<RoleEditRoute> { entry ->
+            val route = entry.toRoute<RoleEditRoute>()
+            RoleEditScreen(route.serverId, route.roleId, onBack = navController::popBackStack)
+        }
+        composable<ServerMembersRoute> { entry ->
+            ServerMembersScreen(entry.toRoute<ServerMembersRoute>().serverId, onBack = navController::popBackStack)
         }
         composable<FriendsRoute> {
             FriendsScreen(onBack = navController::popBackStack, onMessage = { navController.navigate(ConversationRoute(it)) })

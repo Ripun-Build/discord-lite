@@ -5,6 +5,7 @@ import com.discordlite.server.auth.AuthResponse
 import com.discordlite.server.messaging.GatewayFrame
 import com.discordlite.server.messaging.GroupDto
 import com.discordlite.server.messaging.SendGroupMessageRequest
+import com.discordlite.server.servers.SendChannelMessageRequest
 import com.discordlite.server.messaging.SendMessageRequest
 import com.discordlite.server.messaging.b64
 import com.discordlite.server.social.FriendsResponse
@@ -46,7 +47,8 @@ import java.util.UUID
  * end to end exactly like the app does. Its keys live in memory, so each run is a "new phone".
  *
  * Add it to a group and it echoes there too, with its own sender key (shared with each member over
- * 1:1 sessions first, as the app does).
+ * 1:1 sessions first, as the app does). Add it to a server and @mention it in a channel: it answers
+ * there, mentioning you back (server channels aren't end-to-end encrypted).
  */
 fun main() = runBlocking {
     val server = System.getenv("BOT_SERVER") ?: "http://localhost:8080"
@@ -170,6 +172,19 @@ fun main() = runBlocking {
         for (frame in incoming) {
             if (frame !is Frame.Text) continue
             val event = json.decodeFromString(GatewayFrame.serializer(), frame.readText())
+            val channelMessage = event.channelMessage
+            if (event.t == "channel_message" && channelMessage != null && channelMessage.authorId != me && me in channelMessage.mentionIds) {
+                println("← [#channel] \"${channelMessage.body}\"")
+                launch {
+                    send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), GatewayFrame("channel_typing", channelId = channelMessage.channelId))))
+                    delay(replyDelay)
+                    val said = channelMessage.body.replace("@$username", "").trim()
+                    val reply = "@${channelMessage.authorUsername} echo: $said"
+                    val sent = post("/v1/channels/${channelMessage.channelId}/messages", SendChannelMessageRequest(reply, UUID.randomUUID().toString()), token)
+                    println(if (sent.status.isSuccess()) "→ [#channel] \"$reply\"" else "Channel reply failed: ${sent.bodyAsText()}")
+                }
+                continue
+            }
             if (event.t == "group") println("Group \"${event.group?.name ?: event.group?.id}\" now has ${event.group?.members?.size} members")
             val envelope = event.envelope ?: continue
             val groupId = envelope.groupId

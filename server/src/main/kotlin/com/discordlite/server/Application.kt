@@ -17,6 +17,7 @@ import com.discordlite.server.messaging.GroupService
 import com.discordlite.server.messaging.KeyService
 import com.discordlite.server.messaging.MessageService
 import com.discordlite.server.plugins.configureWebSockets
+import com.discordlite.server.servers.ServerService
 import com.discordlite.server.social.SocialService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -56,6 +57,7 @@ class AppDeps(val config: AppConfig, dataSource: DataSource, mailer: Mailer, pus
         ?: NoPush.also { LoggerFactory.getLogger("Push").info("Push notifications are off (FIREBASE_SERVICE_ACCOUNT not set)") }
     val groups = GroupService(db, social, gateway)
     val messages = MessageService(db, keys, social, gateway, groups, this.pusher, scope)
+    val servers = ServerService(db, gateway, this.pusher, scope)
 }
 
 fun Application.module() {

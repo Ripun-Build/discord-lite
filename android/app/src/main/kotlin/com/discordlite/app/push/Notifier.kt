@@ -15,6 +15,7 @@ import com.discordlite.app.MainActivity
 import com.discordlite.app.R
 import com.discordlite.app.chat.IncomingText
 import com.discordlite.app.data.AppSettings
+import com.discordlite.app.servers.MentionAlert
 
 /**
  * Shows message notifications, built on the phone from already-decrypted messages.
@@ -69,6 +70,39 @@ class Notifier(private val context: Context, private val settings: AppSettings) 
                 .build()
             @Suppress("MissingPermission") // checked in canNotify()
             manager.notify(idFor(peerId), notification)
+        }
+    }
+
+    /**
+     * "Bea in #general" — someone @mentioned you in a server. Server channels aren't end-to-end
+     * encrypted, but the same privacy settings apply: hidden content shows only "New mention".
+     */
+    fun showMentions(alerts: List<MentionAlert>) {
+        if (alerts.isEmpty() || !canNotify()) return
+        alerts.groupBy { it.channelId }.forEach { (channelId, inChannel) ->
+            val latest = inChannel.last()
+            val hidden = settings.hideNotificationContent
+            val key = "channel:${latest.serverId}:$channelId"
+            val publicVersion = NotificationCompat.Builder(context, CHANNEL)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("discord-lite")
+                .setContentText("New mention")
+                .build()
+            val text = if (hidden) "New mention" else latest.text
+            val notification = NotificationCompat.Builder(context, CHANNEL)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle(if (hidden) "discord-lite" else latest.title)
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPublicVersion(publicVersion)
+                .setAutoCancel(true)
+                .setContentIntent(openChat(key))
+                .build()
+            @Suppress("MissingPermission") // checked in canNotify()
+            manager.notify(idFor(key), notification)
         }
     }
 
