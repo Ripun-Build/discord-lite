@@ -20,6 +20,7 @@ import kotlin.time.Duration.Companion.minutes
 
 const val ACCESS_AUTH = "access"
 val AuthRateLimit = RateLimitName("auth")
+val InviteRateLimit = RateLimitName("invites")
 
 fun Application.configureSecurity(tokens: TokenService, config: AppConfig) {
     install(Authentication) {
@@ -34,6 +35,11 @@ fun Application.configureSecurity(tokens: TokenService, config: AppConfig) {
         register(AuthRateLimit) {
             rateLimiter(limit = config.authRequestsPerMinute, refillPeriod = 1.minutes)
             requestKey { call -> call.request.origin.remoteAddress }
+        }
+        // Looking up invite codes, per account: stops anyone scanning for valid codes by guessing.
+        register(InviteRateLimit) {
+            rateLimiter(limit = config.inviteLookupsPerMinute, refillPeriod = 1.minutes)
+            requestKey { call -> call.principal<JWTPrincipal>()?.payload?.subject ?: call.request.origin.remoteAddress }
         }
     }
 }

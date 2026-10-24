@@ -697,7 +697,7 @@ internal fun InfoFooter(text: String) {
  * and on release the flick's projected end decides open vs closed; a spring carries the velocity.
  */
 @Composable
-internal fun SwipeToReveal(enabled: Boolean, action: String, onAction: () -> Unit, content: @Composable () -> Unit) {
+internal fun SwipeToReveal(enabled: Boolean, action: String, onAction: () -> Unit, color: Color = DlTheme.colors.danger, content: @Composable () -> Unit) {
     val colors = DlTheme.colors
     val scope = rememberCoroutineScope()
     val revealPx = with(LocalDensity.current) { 92.dp.toPx() }
@@ -715,7 +715,7 @@ internal fun SwipeToReveal(enabled: Boolean, action: String, onAction: () -> Uni
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
                     .width(92.dp)
-                    .background(colors.danger)
+                    .background(color)
                     .pressable(pressedScale = 0.96f) {
                         scope.launch { offset.animateTo(0f, DlMotion.smooth()) }
                         onAction()

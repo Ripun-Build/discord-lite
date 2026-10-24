@@ -31,7 +31,10 @@ import com.discordlite.app.ui.auth.SignInScreen
 import com.discordlite.app.ui.auth.SignUpScreen
 import com.discordlite.app.ui.auth.VerifyEmailScreen
 import com.discordlite.app.ui.auth.WelcomeScreen
+import com.discordlite.app.ui.servers.JoinInviteScreen
 import com.discordlite.app.ui.servers.RoleEditScreen
+import com.discordlite.app.ui.servers.ServerBansScreen
+import com.discordlite.app.ui.servers.ServerInvitesScreen
 import com.discordlite.app.ui.servers.ServerChannelScreen
 import com.discordlite.app.ui.servers.ServerChannelsScreen
 import com.discordlite.app.ui.servers.ServerMembersScreen
@@ -56,7 +59,10 @@ import kotlinx.serialization.Serializable
 @Serializable data class GroupChatRoute(val groupId: String)
 @Serializable data class GroupInfoRoute(val groupId: String)
 @Serializable data class ChannelRoute(val serverId: String, val channelId: String)
+@Serializable data class JoinInviteRoute(val code: String)
 @Serializable data class ServerSettingsRoute(val serverId: String)
+@Serializable data class ServerInvitesRoute(val serverId: String)
+@Serializable data class ServerBansRoute(val serverId: String)
 @Serializable data class ServerChannelsRoute(val serverId: String)
 @Serializable data class ServerRolesRoute(val serverId: String)
 @Serializable data class RoleEditRoute(val serverId: String, val roleId: String? = null)
@@ -100,13 +106,16 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         }
     }
 
-    // A tapped notification opens its chat.
+    // A tapped notification opens its chat; a tapped invite link opens its Join card.
     val openChat by container.openChatRequests.collectAsStateWithLifecycle()
     LaunchedEffect(openChat) {
         val peer = openChat ?: return@LaunchedEffect
+        // Signed out: an invite waits until after sign-in (Home picks it up).
+        if (!container.account.isSignedIn && peer.startsWith("invite:")) return@LaunchedEffect
         if (container.account.isSignedIn) {
             val channel = peer.takeIf { it.startsWith("channel:") }?.split(':')
             val route: Any = when {
+                peer.startsWith("invite:") -> JoinInviteRoute(peer.removePrefix("invite:"))
                 channel != null && channel.size == 3 -> ChannelRoute(channel[1], channel[2])
                 container.groups.isGroup(peer) -> GroupChatRoute(peer)
                 else -> ConversationRoute(peer)
@@ -167,6 +176,11 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 runCatching { container.account.loadMe() }
                 runCatching { container.social.refresh() }
                 container.startSession()
+                // An invite link tapped before signing in.
+                container.openChatRequests.value?.takeIf { it.startsWith("invite:") }?.let {
+                    container.openChatRequests.value = null
+                    navController.navigate(JoinInviteRoute(it.removePrefix("invite:")))
+                }
             }
             HomeScreen(
                 onOpenChat = { navController.navigate(ConversationRoute(it)) },
@@ -197,11 +211,22 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             val route = entry.toRoute<ChannelRoute>()
             ServerChannelScreen(route.serverId, route.channelId, onBack = navController::popBackStack)
         }
+        composable<JoinInviteRoute> { entry ->
+            JoinInviteScreen(entry.toRoute<JoinInviteRoute>().code, onBack = navController::popBackStack)
+        }
+        composable<ServerInvitesRoute> { entry ->
+            ServerInvitesScreen(entry.toRoute<ServerInvitesRoute>().serverId, onBack = navController::popBackStack)
+        }
+        composable<ServerBansRoute> { entry ->
+            ServerBansScreen(entry.toRoute<ServerBansRoute>().serverId, onBack = navController::popBackStack)
+        }
         composable<ServerSettingsRoute> { entry ->
             val serverId = entry.toRoute<ServerSettingsRoute>().serverId
             ServerSettingsScreen(
                 serverId,
                 onBack = navController::popBackStack,
+                onOpenInvites = { navController.navigate(ServerInvitesRoute(serverId)) },
+                onOpenBans = { navController.navigate(ServerBansRoute(serverId)) },
                 onOpenChannels = { navController.navigate(ServerChannelsRoute(serverId)) },
                 onOpenRoles = { navController.navigate(ServerRolesRoute(serverId)) },
                 onOpenMembers = { navController.navigate(ServerMembersRoute(serverId)) },

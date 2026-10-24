@@ -144,6 +144,11 @@ object Permissions {
     const val KICK_MEMBERS = 8L
     const val MANAGE_MESSAGES = 16L
     const val ADD_MEMBERS = 32L
+    const val CREATE_INVITES = 64L
+    const val BAN_MEMBERS = 128L
+
+    /** Powers over other people or the server (making invites isn't one). */
+    const val MANAGEMENT = MANAGE_SERVER or MANAGE_CHANNELS or MANAGE_ROLES or KICK_MEMBERS or MANAGE_MESSAGES or ADD_MEMBERS or BAN_MEMBERS
 }
 
 @Serializable data class CategoryResponse(val id: String, val name: String, val position: Int)
@@ -194,3 +199,24 @@ data class ChannelMessageResponse(
 @Serializable data class SendChannelMessageBody(val body: String, val clientId: String)
 @Serializable data class ReadBody(val lastReadId: Long)
 @Serializable data class MentionAckBody(val messageIds: List<Long>)
+
+// Phase 5: invite links and bans.
+
+@Serializable
+data class InviteResponse(
+    val code: String,
+    val serverId: String,
+    val creatorId: String,
+    val creatorName: String,
+    val maxUses: Int? = null,
+    val uses: Int,
+    val expiresAt: Long? = null,
+    val createdAt: Long,
+)
+
+@Serializable data class InvitePreviewResponse(val code: String, val serverId: String, val serverName: String, val memberCount: Int, val joined: Boolean, val expiresAt: Long? = null)
+
+/** [maxUses] null = no limit. Nulls aren't sent, so "never expires" is said with [neverExpires]. */
+@Serializable data class CreateInviteBody(val maxAgeSeconds: Long?, val maxUses: Int?, val neverExpires: Boolean)
+
+@Serializable data class BanResponse(val userId: String, val username: String, val displayName: String, val bannedAt: Long)

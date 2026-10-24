@@ -55,7 +55,7 @@ class ServerTest {
 
         // Bob sees it as a plain member; a stranger can't see it at all.
         val asBob = http.get("/v1/servers/${server.id}") { bearerAuth(bob.token) }.body<ServerDto>()
-        assertEquals(0L, asBob.myPermissions)
+        assertEquals(Permissions.DEFAULT, asBob.myPermissions) // just "Create invites"
         assertEquals(listOf(server.id), http.get("/v1/servers") { bearerAuth(bob.token) }.body<List<ServerSummary>>().map { it.id })
         assertEquals(HttpStatusCode.NotFound, http.get("/v1/servers/${server.id}") { bearerAuth(stranger.token) }.status)
 

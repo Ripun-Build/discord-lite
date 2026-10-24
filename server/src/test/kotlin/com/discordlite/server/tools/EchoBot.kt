@@ -48,7 +48,8 @@ import java.util.UUID
  *
  * Add it to a group and it echoes there too, with its own sender key (shared with each member over
  * 1:1 sessions first, as the app does). Add it to a server and @mention it in a channel: it answers
- * there, mentioning you back (server channels aren't end-to-end encrypted).
+ * there, mentioning you back (server channels aren't end-to-end encrypted). DM it an invite link
+ * and it joins that server.
  */
 fun main() = runBlocking {
     val server = System.getenv("BOT_SERVER") ?: "http://localhost:8080"
@@ -239,6 +240,11 @@ fun main() = runBlocking {
             val text = payload["text"]?.jsonPrimitive?.content ?: continue
             val messageId = payload["id"]?.jsonPrimitive?.content ?: continue
             println("← \"$text\"")
+            // An invite link in a DM: join that server (and still echo, so the link shows as a card).
+            Regex("discordlite://invite/([A-Za-z0-9]{8})").find(text)?.groupValues?.get(1)?.let { code ->
+                val joined = http.post("$server/v1/invites/$code/join") { bearerAuth(token) }
+                println(if (joined.status.isSuccess()) "Joined a server with invite $code" else "Couldn't join with $code: ${joined.bodyAsText()}")
+            }
 
             suspend fun encryptedTo(body: String) = signal.encrypt(envelope.senderId, body)
             suspend fun sendStored(body: String) {

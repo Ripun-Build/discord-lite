@@ -1,6 +1,10 @@
 package com.discordlite.app.servers
 
 import com.discordlite.app.data.remote.AddMembersBody
+import com.discordlite.app.data.remote.BanResponse
+import com.discordlite.app.data.remote.CreateInviteBody
+import com.discordlite.app.data.remote.InvitePreviewResponse
+import com.discordlite.app.data.remote.InviteResponse
 import com.discordlite.app.data.remote.ApiError
 import com.discordlite.app.data.remote.CategoryBody
 import com.discordlite.app.data.remote.ChannelMessageResponse
@@ -50,6 +54,13 @@ data class ChannelMessage(
 /** One channel's loaded history. [complete] once the oldest message has been loaded. */
 data class ChannelHistory(val messages: List<ChannelMessage> = emptyList(), val loaded: Boolean = false, val complete: Boolean = false)
 
+/** What a chat shows for an invite link: still loading, a server to join, or a dead link. */
+sealed interface InviteState {
+    data object Loading : InviteState
+    data class Valid(val preview: InvitePreviewResponse) : InviteState
+    data object Invalid : InviteState
+}
+
 /** An @mention of you to show as a notification. */
 data class MentionAlert(val serverId: String, val channelId: String, val title: String, val text: String)
 
@@ -76,6 +87,8 @@ class ServersRepository(
     private val details = MutableStateFlow<Map<String, ServerResponse>>(emptyMap())
     private val members = MutableStateFlow<Map<String, List<ServerMemberResponse>>>(emptyMap())
     private val histories = MutableStateFlow<Map<String, ChannelHistory>>(emptyMap())
+    private val invitePreviews = MutableStateFlow<Map<String, InviteState>>(emptyMap())
+    private val invitesFetchedAt = mutableMapOf<String, Long>()
 
     private val _typing = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
@@ -161,6 +174,65 @@ class ServersRepository(
         store(apiCall { api.renameCategory(serverId, categoryId, CategoryBody(name.trim())) })
 
     suspend fun deleteCategory(serverId: String, categoryId: String) = store(apiCall { api.deleteCategory(serverId, categoryId) })
+
+    // --- Invites and bans ---
+
+    suspend fun createInvite(serverId: String, maxAgeSeconds: Long?, maxUses: Int?): InviteResponse =
+        apiCall { api.createInvite(serverId, CreateInviteBody(maxAgeSeconds, maxUses, neverExpires = maxAgeSeconds == null)) }
+
+    suspend fun invites(serverId: String): List<InviteResponse> = apiCall { api.invites(serverId) }
+
+    suspend fun deleteInvite(code: String) {
+        apiCallUnit { api.deleteInvite(code) }
+        invitePreviews.update { it - code }
+    }
+
+    /**
+     * A card for an invite link. Fetched when first shown and again if it's over a minute old
+     * (member counts change); not on every scroll, since invite lookups are rate limited.
+     */
+    fun invite(code: String): Flow<InviteState> {
+        val stale = System.currentTimeMillis() - (invitesFetchedAt[code] ?: 0L) > INVITE_FRESH_MS
+        if (invitePreviews.value[code] == null || stale) {
+            invitesFetchedAt[code] = System.currentTimeMillis()
+            if (invitePreviews.value[code] == null) invitePreviews.update { it + (code to InviteState.Loading) }
+            scope.launch { loadInvite(code) }
+        }
+        return invitePreviews.map { it[code] ?: InviteState.Loading }
+    }
+
+    suspend fun loadInvite(code: String): InviteState {
+        val state = try {
+            InviteState.Valid(apiCall { api.invitePreview(code) })
+        } catch (e: ApiError) {
+            // A network blip shouldn't mark the link as dead: forget it so it's tried again.
+            if (e.code == "network") null else InviteState.Invalid
+        }
+        invitePreviews.update { if (state == null) it - code else it + (code to state) }
+        return state ?: InviteState.Loading
+    }
+
+    /** Joins through a link and returns the server; the server list and cards update. */
+    suspend fun join(code: String): ServerResponse {
+        val server = apiCall { api.joinInvite(code) }
+        store(server)
+        runCatching { refresh() }
+        invitePreviews.update { all ->
+            val joined = (all[code] as? InviteState.Valid)?.let { InviteState.Valid(it.preview.copy(joined = true, memberCount = server.memberCount)) }
+            all + (code to (joined ?: InviteState.Loading))
+        }
+        return server
+    }
+
+    suspend fun bans(serverId: String): List<BanResponse> = apiCall { api.bans(serverId) }
+
+    suspend fun ban(serverId: String, userId: String) {
+        apiCallUnit { api.ban(serverId, userId) }
+        runCatching { loadMembers(serverId) }
+        runCatching { load(serverId) }
+    }
+
+    suspend fun unban(serverId: String, userId: String) = apiCallUnit { api.unban(serverId, userId) }
 
     // --- Messages ---
 
@@ -381,12 +453,14 @@ class ServersRepository(
         details.value = emptyMap()
         members.value = emptyMap()
         histories.value = emptyMap()
+        invitePreviews.value = emptyMap()
         _typing.value = emptyMap()
         openChannel = null
     }
 
     private companion object {
         const val PAGE = 50
+        const val INVITE_FRESH_MS = 60_000L
         const val TYPING_RESEND_MS = 3_000L
         const val TYPING_TIMEOUT_MS = 6_000L
     }

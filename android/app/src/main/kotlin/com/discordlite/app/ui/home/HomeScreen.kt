@@ -32,6 +32,9 @@ import com.discordlite.app.ui.feed.FeedScreen
 import com.discordlite.app.ui.profile.ProfileScreen
 import com.discordlite.app.ui.servers.AddToServerSheetContent
 import com.discordlite.app.ui.servers.CreateServerSheetContent
+import com.discordlite.app.ui.servers.InviteSheetContent
+import com.discordlite.app.ui.servers.JoinWithInviteSheetContent
+import com.discordlite.app.ui.servers.ServerActionsSheetContent
 import com.discordlite.app.ui.servers.ServersScreen
 import com.discordlite.designsystem.component.FloatingTabBar
 import com.discordlite.designsystem.component.LocalHazeState
@@ -43,7 +46,10 @@ import dev.chrisbanes.haze.hazeSource
 private sealed interface HomeSheet {
     data object NewChat : HomeSheet
     data object NewGroup : HomeSheet
+    data object ServerActions : HomeSheet
     data object CreateServer : HomeSheet
+    data object JoinWithInvite : HomeSheet
+    data class Invite(val serverId: String) : HomeSheet
     data class AddToServer(val serverId: String) : HomeSheet
 }
 
@@ -86,8 +92,9 @@ fun HomeScreen(
                     1 -> ServersScreen(
                         onOpenChannel = onOpenChannel,
                         onOpenSettings = onOpenServerSettings,
-                        onCreateServer = { sheet = HomeSheet.CreateServer },
+                        onCreateServer = { sheet = HomeSheet.ServerActions },
                         onAddMembers = { sheet = HomeSheet.AddToServer(it) },
+                        onInvite = { sheet = HomeSheet.Invite(it) },
                     )
                     2 -> FeedScreen()
                     else -> ProfileScreen(onOpenSettings = onOpenSettings, onEditProfile = onEditProfile)
@@ -117,7 +124,13 @@ fun HomeScreen(
                         onOpenGroup(it)
                     },
                 )
+                HomeSheet.ServerActions -> ServerActionsSheetContent(
+                    onCreate = { sheet = HomeSheet.CreateServer },
+                    onJoin = { sheet = HomeSheet.JoinWithInvite },
+                )
                 HomeSheet.CreateServer -> CreateServerSheetContent(onCancel = { sheet = null }, onCreated = { sheet = null })
+                HomeSheet.JoinWithInvite -> JoinWithInviteSheetContent(onDone = { sheet = null })
+                is HomeSheet.Invite -> InviteSheetContent(s.serverId)
                 is HomeSheet.AddToServer -> AddToServerSheetContent(s.serverId, onDone = { sheet = null })
                 null -> Unit
             }

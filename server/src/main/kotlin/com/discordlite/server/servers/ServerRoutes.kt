@@ -1,7 +1,9 @@
 package com.discordlite.server.servers
 
 import com.discordlite.server.common.notFound
+import com.discordlite.server.plugins.InviteRateLimit
 import com.discordlite.server.plugins.userId
+import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -44,6 +46,19 @@ fun Route.serverRoutes(servers: ServerService) {
             patch("/roles/{roleId}") { call.respond(servers.updateRole(call.userId, call.id("serverId"), call.id("roleId"), call.receive())) }
             delete("/roles/{roleId}") { call.respond(servers.deleteRole(call.userId, call.id("serverId"), call.id("roleId"))) }
 
+            post("/invites") { call.respond(HttpStatusCode.Created, servers.createInvite(call.userId, call.id("serverId"), call.receive())) }
+            get("/invites") { call.respond(servers.invites(call.userId, call.id("serverId"))) }
+
+            get("/bans") { call.respond(servers.bans(call.userId, call.id("serverId"))) }
+            put("/bans/{userId}") {
+                servers.ban(call.userId, call.id("serverId"), call.id("userId"))
+                call.respond(HttpStatusCode.NoContent)
+            }
+            delete("/bans/{userId}") {
+                servers.unban(call.userId, call.id("serverId"), call.id("userId"))
+                call.respond(HttpStatusCode.NoContent)
+            }
+
             post("/channels") { call.respond(servers.createChannel(call.userId, call.id("serverId"), call.receive())) }
             post("/categories") { call.respond(servers.createCategory(call.userId, call.id("serverId"), call.receive())) }
             patch("/categories/{categoryId}") {
@@ -73,6 +88,17 @@ fun Route.serverRoutes(servers: ServerService) {
         }
     }
 
+    route("/v1/invites/{code}") {
+        rateLimit(InviteRateLimit) {
+            get { call.respond(servers.previewInvite(call.userId, call.code())) }
+            post("/join") { call.respond(servers.joinInvite(call.userId, call.code())) }
+        }
+        delete {
+            servers.deleteInvite(call.userId, call.code())
+            call.respond(HttpStatusCode.NoContent)
+        }
+    }
+
     route("/v1/mentions") {
         get { call.respond(servers.pendingMentions(call.userId)) }
         post("/ack") {
@@ -81,6 +107,8 @@ fun Route.serverRoutes(servers: ServerService) {
         }
     }
 }
+
+private fun RoutingCall.code(): String = parameters["code"].orEmpty()
 
 private fun RoutingCall.id(name: String): UUID =
     runCatching { UUID.fromString(parameters[name]) }.getOrNull() ?: throw notFound("${name.removeSuffix("Id")}_not_found")
