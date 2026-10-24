@@ -53,6 +53,7 @@ import java.util.UUID
  */
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED, RECEIVED, SEEN, NOTICE }
 
+/** In a group, [senderId] says who wrote an incoming message ([peerId] is then the group id). */
 data class ChatMessage(
     val localId: Long,
     val peerId: String,
@@ -61,11 +62,13 @@ data class ChatMessage(
     val body: String,
     val sentAt: Long,
     val status: MessageStatus,
+    val senderId: String? = null,
 )
 
 /** A newly received message, for notifications. */
 data class IncomingText(val peerId: String, val displayName: String, val text: String)
 
+/** A DM or a group chat ([isGroup]; [peerId] is then the group id and [memberNames] its first members). */
 data class Conversation(
     val peerId: String,
     val displayName: String,
@@ -73,6 +76,8 @@ data class Conversation(
     val lastMessage: String,
     val lastAt: Long,
     val unread: Int,
+    val isGroup: Boolean = false,
+    val memberNames: List<String> = emptyList(),
 )
 
 /**
@@ -82,6 +87,7 @@ data class Conversation(
  * - `text`: a chat message ([id], [text]).
  * - `receipt`: [state] "delivered" or "read" for the message [ids].
  * - `typing`: [state] "on" or "off". Sent as an ephemeral event, never stored.
+ * - `sender_key`: a group member's Signal sender key ([key]), sent 1:1 to each member.
  */
 @Serializable
 data class ChatPayload(
@@ -92,6 +98,7 @@ data class ChatPayload(
     val ts: Long,
     val state: String? = null,
     val ids: List<String>? = null,
+    val key: String? = null,
 )
 
 /**
@@ -124,8 +131,11 @@ class ChatRepository(
         ignoreUnknownKeys = true
         encodeDefaults = true // the payload format is explicit: every field is always written
     }
-    private val crypto = Mutex() // libsignal session state must not be used from two places at once
-    private val changes = MutableStateFlow(0)
+    internal val crypto = Mutex() // libsignal session state must not be used from two places at once
+    internal val changes = MutableStateFlow(0)
+
+    /** Group chats; set once by the app container (the two need each other). */
+    lateinit var groups: GroupChats
     private val db get() = local.db
 
     /** The chat currently on screen; its incoming messages don't count as unread. */
@@ -133,7 +143,17 @@ class ChatRepository(
 
     val conversations: Flow<List<Conversation>> = changes.map {
         db.queryList("SELECT * FROM conversations ORDER BY last_at DESC") {
-            Conversation(it.str("peer_id"), it.str("display_name"), it.str("username"), it.str("last_message"), it.long("last_at"), it.int("unread"))
+            Conversation(
+                it.str("peer_id"), it.str("display_name"), it.str("username"), it.str("last_message"), it.long("last_at"), it.int("unread"),
+                isGroup = it.int("is_group") == 1,
+            )
+        }.map { conversation ->
+            if (!conversation.isGroup) return@map conversation
+            val names = db.queryList(
+                "SELECT display_name FROM group_members WHERE group_id = ? AND user_id <> ? ORDER BY position LIMIT 2",
+                conversation.peerId, selfId().orEmpty(),
+            ) { it.str("display_name") }
+            conversation.copy(memberNames = names)
         }
     }.flowOn(Dispatchers.IO)
 
@@ -142,13 +162,14 @@ class ChatRepository(
             ChatMessage(
                 it.long("local_id"), it.str("peer_id"), it.str("client_id"), it.int("from_me") == 1, it.str("body"), it.long("sent_at"),
                 MessageStatus.valueOf(it.str("status")),
+                senderId = it.getColumnIndexOrThrow("sender_id").let { col -> if (it.isNull(col)) null else it.getString(col) },
             )
         }
     }.flowOn(Dispatchers.IO)
 
     fun conversation(peerId: String): Flow<Conversation?> = conversations.map { list -> list.firstOrNull { it.peerId == peerId } }
 
-    /** Called when a chat opens, e.g. to clear its notification. */
+    /** Called when a chat (DM or group) opens, e.g. to clear its notification. */
     var onChatOpened: ((String) -> Unit)? = null
 
     suspend fun open(peerId: String) {
@@ -232,7 +253,10 @@ class ChatRepository(
     /** Sends anything still waiting from a previous offline period. Called when the gateway is ready. */
     suspend fun retryPending() {
         val pending = withContext(Dispatchers.IO) {
-            db.queryList("SELECT peer_id, client_id, body, sent_at FROM messages WHERE from_me = 1 AND status = ? ORDER BY sent_at", MessageStatus.SENDING.name) {
+            db.queryList(
+                "SELECT peer_id, client_id, body, sent_at FROM messages WHERE from_me = 1 AND status = ? AND peer_id NOT IN (SELECT id FROM groups) ORDER BY sent_at",
+                MessageStatus.SENDING.name,
+            ) {
                 arrayOf(it.str("peer_id"), it.str("client_id"), it.str("body"), it.long("sent_at").toString())
             }
         }
@@ -259,11 +283,11 @@ class ChatRepository(
      * says `stale_session`: drop the old session, build a new one from their new keys (which
      * shows "security code changed"), and send once more.
      */
-    private suspend fun sendEncrypted(peerId: String, payload: ByteArray, clientId: String) {
+    private suspend fun sendEncrypted(peerId: String, payload: ByteArray, clientId: String, groupId: String? = null) {
         repeat(2) { attempt ->
-            val (message, registrationId) = crypto.withLock { encrypt(peerId, payload) }
+            val (message, registrationId) = crypto.withLock { encrypt(peerId, payload, groupId) }
             try {
-                apiCall { api.sendMessage(SendMessageBody(peerId, message.type, b64(message.serialize()), clientId, registrationId)) }
+                apiCall { api.sendMessage(SendMessageBody(peerId, message.type, b64(message.serialize()), clientId, registrationId, groupId)) }
                 return
             } catch (e: ApiError) {
                 if (e.code != "stale_session" || attempt > 0) throw e
@@ -272,12 +296,23 @@ class ChatRepository(
         }
     }
 
+    /**
+     * A 1:1 encrypted envelope to a fellow member of [groupId] (a sender key or a receipt). The
+     * group, not "who can DM me", is what allows it, and it doesn't start a DM.
+     */
+    internal suspend fun sendPairwise(peerId: String, payload: ByteArray, clientId: String, groupId: String) =
+        sendEncrypted(peerId, payload, clientId, groupId)
+
+    internal fun encode(payload: ChatPayload): ByteArray = json.encodeToString(ChatPayload.serializer(), payload).toByteArray()
+
+    internal fun decode(bytes: ByteArray): ChatPayload? = runCatching { json.decodeFromString(ChatPayload.serializer(), String(bytes)) }.getOrNull()
+
     /** Returns the ciphertext plus the recipient registration id the session was built for. */
-    private suspend fun encrypt(peerId: String, payload: ByteArray): Pair<CiphertextMessage, Int> {
+    private suspend fun encrypt(peerId: String, payload: ByteArray, groupId: String? = null): Pair<CiphertextMessage, Int> {
         val self = selfAddress()
         val address = SignalProtocolAddress(peerId, DEVICE)
         if (!withContext(Dispatchers.IO) { store.containsSession(address) }) {
-            val bundle = apiCall { api.preKeyBundle(peerId) }
+            val bundle = apiCall { api.preKeyBundle(peerId, groupId) }
             withContext(Dispatchers.Default) { SessionBuilder(store, address, self).process(bundle.toLibsignal()) }
         }
         return withContext(Dispatchers.Default) {
@@ -291,6 +326,7 @@ class ChatRepository(
      * acknowledge it — a message that can't be decrypted leaves a notice instead of looping.
      */
     suspend fun receive(envelope: Envelope): IncomingText? {
+        if (envelope.type == GroupChats.SENDER_KEY_TYPE) return groups.receiveGroupMessage(envelope)
         var incoming: IncomingText? = null
         val plain = runCatching {
             crypto.withLock {
@@ -304,6 +340,11 @@ class ChatRepository(
                     }
                 }
             }
+        }
+        // Sent inside a group (a sender key, a receipt): it belongs to the group, not a DM.
+        if (envelope.groupId != null) {
+            groups.receivePairwise(envelope, plain)
+            return null
         }
         withContext(Dispatchers.IO) {
             ensureConversation(envelope.senderId)
@@ -337,7 +378,7 @@ class ChatRepository(
         explainOnce(peerId, "Can't send yet: they haven't opened discord-lite since signing up, so there are no encryption keys to send to.")
 
     /** Adds a notice unless the latest notice in this chat already says the same thing. */
-    private suspend fun explainOnce(peerId: String, text: String) {
+    internal suspend fun explainOnce(peerId: String, text: String) {
         withContext(Dispatchers.IO) {
             val last = db.queryOne(
                 "SELECT body FROM messages WHERE peer_id = ? AND status = ? ORDER BY sent_at DESC, local_id DESC LIMIT 1",
@@ -418,7 +459,8 @@ class ChatRepository(
         return true
     }
 
-    private fun notice(peerId: String, text: String) {
+    /** Adds a system line to a chat. Call off the main thread. */
+    internal fun notice(peerId: String, text: String) {
         // Place it just before any message still being sent, so it reads before the message it concerns.
         val pending = db.queryOne(
             "SELECT MIN(sent_at) AS at FROM messages WHERE peer_id = ? AND from_me = 1 AND status = ?",
@@ -441,7 +483,7 @@ class ChatRepository(
         )
     }
 
-    private suspend fun setStatus(peerId: String, clientId: String, status: MessageStatus) {
+    internal suspend fun setStatus(peerId: String, clientId: String, status: MessageStatus) {
         withContext(Dispatchers.IO) {
             db.exec("UPDATE messages SET status = ? WHERE peer_id = ? AND client_id = ? AND from_me = 1", status.name, peerId, clientId)
         }
@@ -450,7 +492,7 @@ class ChatRepository(
 
     private fun selfAddress() = SignalProtocolAddress(selfId() ?: error("Not signed in"), DEVICE)
 
-    private fun bump() {
+    internal fun bump() {
         changes.value++
     }
 

@@ -24,7 +24,7 @@ fun Application.configureRouting(deps: AppDeps) {
         authRoutes(deps.auth, deps.tokens)
         authenticate(ACCESS_AUTH) {
             socialRoutes(deps.social)
-            messagingRoutes(deps.keys, deps.messages, deps.gateway, deps.pushTokens)
+            messagingRoutes(deps.keys, deps.messages, deps.groups, deps.gateway, deps.pushTokens)
         }
     }
 }

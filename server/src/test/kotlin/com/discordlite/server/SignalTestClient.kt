@@ -9,6 +9,9 @@ import com.discordlite.server.messaging.UploadKeysRequest
 import com.discordlite.server.messaging.b64
 import com.discordlite.server.messaging.unb64
 import org.signal.libsignal.protocol.IdentityKey
+import org.signal.libsignal.protocol.groups.GroupCipher
+import org.signal.libsignal.protocol.groups.GroupSessionBuilder
+import org.signal.libsignal.protocol.message.SenderKeyDistributionMessage
 import org.signal.libsignal.protocol.IdentityKeyPair
 import org.signal.libsignal.protocol.SessionBuilder
 import org.signal.libsignal.protocol.SessionCipher
@@ -27,6 +30,7 @@ import org.signal.libsignal.protocol.state.PreKeyRecord
 import org.signal.libsignal.protocol.state.SignedPreKeyRecord
 import org.signal.libsignal.protocol.state.impl.InMemorySignalProtocolStore
 import org.signal.libsignal.protocol.util.KeyHelper
+import java.util.UUID
 
 /**
  * A real Signal Protocol client living in the test, so tests prove the whole path works:
@@ -96,6 +100,40 @@ class SignalTestClient(val userId: String) {
         }
         return String(plain)
     }
+
+    /**
+     * Group messaging with sender keys: make our sender key for [distributionId] and get the
+     * message that shares it (sent to each member over our 1:1 sessions).
+     */
+    fun senderKeyFor(distributionId: UUID): SenderKeyDistributionMessage =
+        GroupSessionBuilder(store).create(self, distributionId)
+
+    /** Stores a member's sender key that arrived inside a 1:1 message. */
+    fun acceptSenderKey(from: String, distribution: ByteArray) =
+        GroupSessionBuilder(store).process(address(from), SenderKeyDistributionMessage(distribution))
+
+    /** Encrypts once for the whole group (a type-7 sender-key message). */
+    fun encryptForGroup(distributionId: UUID, text: String): CiphertextMessage =
+        GroupCipher(store, self).encrypt(distributionId, text.toByteArray())
+
+    fun decryptGroup(envelope: Envelope): String {
+        check(envelope.type == CiphertextMessage.SENDERKEY_TYPE) { "unexpected type ${envelope.type}" }
+        return String(GroupCipher(store, address(envelope.senderId)).decrypt(unb64(envelope.body)))
+    }
+
+    /** Decrypts a 1:1 envelope to raw bytes (e.g. a sender key being shared). */
+    fun decryptBytes(envelope: Envelope): ByteArray {
+        val cipher = SessionCipher(store, self, address(envelope.senderId))
+        val bytes = unb64(envelope.body)
+        return when (envelope.type) {
+            CiphertextMessage.PREKEY_TYPE -> cipher.decrypt(PreKeySignalMessage(bytes))
+            CiphertextMessage.WHISPER_TYPE -> cipher.decrypt(SignalMessage(bytes))
+            else -> error("unexpected type ${envelope.type}")
+        }
+    }
+
+    fun encryptBytes(to: String, bytes: ByteArray): CiphertextMessage =
+        SessionCipher(store, self, address(to)).encrypt(bytes)
 
     private fun address(user: String) = SignalProtocolAddress(user, DEVICE)
 

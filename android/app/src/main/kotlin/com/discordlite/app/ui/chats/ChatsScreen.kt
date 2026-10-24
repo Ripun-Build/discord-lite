@@ -52,7 +52,7 @@ import com.discordlite.designsystem.component.pressable
 import com.discordlite.designsystem.theme.DlTheme
 
 @Composable
-fun ChatsScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onOpenFriends: () -> Unit) {
+fun ChatsScreen(onOpenChat: (String) -> Unit, onOpenGroup: (String) -> Unit, onNewChat: () -> Unit, onOpenFriends: () -> Unit) {
     val colors = DlTheme.colors
     val container = LocalAppContainer.current
     val me by container.account.me.collectAsStateWithLifecycle()
@@ -88,7 +88,9 @@ fun ChatsScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onOpenFrien
         }
         conversations.forEachIndexed { index, conversation ->
             item(key = conversation.peerId) {
-                ConversationRow(conversation, Modifier.entrance(index, distance = 14.dp, baseDelayMs = 40L)) { onOpenChat(conversation.peerId) }
+                ConversationRow(conversation, Modifier.entrance(index, distance = 14.dp, baseDelayMs = 40L)) {
+                    if (conversation.isGroup) onOpenGroup(conversation.peerId) else onOpenChat(conversation.peerId)
+                }
             }
         }
     }
@@ -123,7 +125,7 @@ private fun ConversationRow(conversation: Conversation, modifier: Modifier = Mod
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(conversation.displayName, 56.dp)
+        if (conversation.isGroup) GroupAvatar(conversation.memberNames.ifEmpty { listOf(conversation.displayName) }) else Avatar(conversation.displayName, 56.dp)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -135,7 +137,7 @@ private fun ConversationRow(conversation: Conversation, modifier: Modifier = Mod
                 Icon(Icons.Rounded.Lock, null, tint = colors.textTertiary, modifier = Modifier.size(12.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    conversation.lastMessage.ifEmpty { "Say hi — messages are end-to-end encrypted" },
+                    conversation.lastMessage.ifEmpty { if (conversation.isGroup) "New group — say hi" else "Say hi — messages are end-to-end encrypted" },
                     style = DlTheme.type.subheadline,
                     color = if (unread) colors.textPrimary else colors.textSecondary,
                     maxLines = 1,
@@ -178,34 +180,16 @@ private fun EmptyChats(onNewChat: () -> Unit) {
     }
 }
 
-/** Two overlapping avatars for group chats. */
-@Composable
-fun GroupAvatar(members: List<User>, size: androidx.compose.ui.unit.Dp = 56.dp) {
-    val colors = DlTheme.colors
-    Box(Modifier.size(size)) {
-        Avatar(members[0].name, size * 0.68f, Modifier.align(Alignment.TopEnd))
-        Box(
-            Modifier
-                .align(Alignment.BottomStart)
-                .size(size * 0.68f + 3.dp)
-                .background(colors.background, androidx.compose.foundation.shape.CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Avatar(members.getOrElse(1) { members[0] }.name, size * 0.68f)
-        }
-    }
-}
-
 /** Sheet content: pick a friend to message (or find more friends). */
 @Composable
-fun NewChatSheetContent(onOpenChat: (String) -> Unit, onFindFriends: () -> Unit) {
+fun NewChatSheetContent(onOpenChat: (String) -> Unit, onFindFriends: () -> Unit, onNewGroup: () -> Unit) {
     val colors = DlTheme.colors
     val friends by LocalAppContainer.current.social.friends.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxWidth()) {
         Text("New message", style = DlTheme.type.title3, color = colors.textPrimary, modifier = Modifier.padding(horizontal = 20.dp))
         Spacer(Modifier.height(12.dp))
         SheetAction(Icons.Rounded.PersonAdd, "Find friends", "Search by @username", onFindFriends)
-        SheetAction(Icons.Rounded.Group, "New group", "Coming in the next update") {}
+        SheetAction(Icons.Rounded.Group, "New group", "Up to 25 friends, end-to-end encrypted", onNewGroup)
         Spacer(Modifier.height(8.dp))
         Text("FRIENDS", style = DlTheme.type.micro, color = colors.textSecondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
         if (friends.friends.isEmpty()) {

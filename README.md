@@ -6,7 +6,7 @@ A privacy-first, end-to-end encrypted real-time chat app for Android.
 - **Backend:** Kotlin + Ktor, PostgreSQL, Redis, S3-compatible blob storage
 - **Security:** Signal Protocol (PQXDH + Double Ratchet) for DMs, no phone numbers, no contact upload, minimal server metadata (sealed sender planned)
 
-Status: Phase 2 in progress — end-to-end encrypted 1:1 chat (Signal Protocol) works; receipts, typing, app lock and push are next.
+Status: Phase 3 done — end-to-end encrypted 1:1 and group chats (Signal Protocol, sender keys for groups of up to 25). Servers & channels (Phase 4) are next.
 
 ## Repo layout
 
@@ -50,6 +50,6 @@ With the server running, start a bot that replies to whatever you send it — en
 cd server && ./gradlew echoBot
 ```
 
-In the app: Friends → search `echobot` → Add (it accepts automatically) → Message.
+In the app: Friends → search `echobot` → Add (it accepts automatically) → Message. Add it to a group (New message → New group) and it answers there too.
 
-Accounts, profiles, friends and 1:1 chats are real. Servers, stories and the feed still use sample data until their phases.
+Accounts, profiles, friends, 1:1 chats and group chats are real. Servers, stories and the feed still use sample data until their phases.

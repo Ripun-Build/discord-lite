@@ -10,9 +10,11 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * One frame on the real-time connection.
  *
- * Server → client: `message` (an [Envelope]), `ready` (backlog delivered).
+ * Server → client: `message` (an [Envelope]), `ready` (backlog delivered), `group` (a [group]
+ * you're in was created or changed), `group_removed` (you left or were removed from [groupId]).
  * Client → server: `ack` (envelope [ids] stored on the device), `ephemeral` (an encrypted
- * typing event for user [to] — passed on if they're online, never stored).
+ * typing event for user [to], or for everyone in [groupId] — passed on to whoever is online,
+ * never stored).
  */
 @Serializable
 data class GatewayFrame(
@@ -20,6 +22,8 @@ data class GatewayFrame(
     val envelope: Envelope? = null,
     val ids: List<Long>? = null,
     val to: String? = null,
+    val groupId: String? = null,
+    val group: GroupDto? = null,
 )
 
 /**
@@ -46,8 +50,11 @@ class Gateway {
 
     fun isOnline(user: UUID): Boolean = sessions[user]?.isNotEmpty() == true
 
-    suspend fun deliver(user: UUID, envelope: Envelope) {
-        val text = json.encodeToString(GatewayFrame.serializer(), GatewayFrame("message", envelope))
+    suspend fun deliver(user: UUID, envelope: Envelope) = sendTo(user, GatewayFrame("message", envelope))
+
+    /** Sends [frame] to every connection [user] has open right now (none if they're offline). */
+    suspend fun sendTo(user: UUID, frame: GatewayFrame) {
+        val text = json.encodeToString(GatewayFrame.serializer(), frame)
         sessions[user]?.forEach { session -> runCatching { session.send(Frame.Text(text)) } }
     }
 

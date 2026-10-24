@@ -22,7 +22,8 @@ import kotlin.math.min
 /**
  * The live connection to the server. Envelopes are handled one at a time, in order, and each is
  * acknowledged only after it has been decrypted and saved — so nothing is lost if the app dies
- * mid-way. Drops reconnect automatically with exponential back-off (1 s → 30 s).
+ * mid-way. Group changes ([onFrame]) go through the same queue, so they keep their order relative
+ * to messages. Drops reconnect automatically with exponential back-off (1 s → 30 s).
  */
 class GatewayClient(
     http: OkHttpClient,
@@ -30,12 +31,13 @@ class GatewayClient(
     private val scope: CoroutineScope,
     private val onEnvelope: suspend (Envelope) -> Unit,
     private val onReady: suspend () -> Unit,
+    private val onFrame: suspend (GatewayFrame) -> Unit = {},
 ) {
     enum class State { Offline, Connecting, Online }
 
     private val client = http.newBuilder().pingInterval(30, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS).build()
     private val url = baseUrl.replaceFirst("http", "ws") + "v1/gateway"
-    private val inbox = Channel<Envelope>(Channel.UNLIMITED)
+    private val inbox = Channel<GatewayFrame>(Channel.UNLIMITED)
     private val _state = MutableStateFlow(State.Offline)
     val state: StateFlow<State> = _state.asStateFlow()
 
@@ -46,7 +48,12 @@ class GatewayClient(
 
     init {
         scope.launch {
-            for (envelope in inbox) {
+            for (frame in inbox) {
+                val envelope = frame.envelope
+                if (frame.t != "message" || envelope == null) {
+                    runCatching { onFrame(frame) }
+                    continue
+                }
                 runCatching { onEnvelope(envelope) }
                 if (envelope.id > 0) ack(envelope.id) // id 0 = ephemeral (typing): never stored, nothing to ack
             }
@@ -80,6 +87,12 @@ class GatewayClient(
         socket?.send(ApiClient.json.encodeToString(GatewayFrame.serializer(), frame))
     }
 
+    /** Group typing: one sender-key ciphertext, passed to every member who's online. */
+    fun sendGroupEphemeral(groupId: String, type: Int, body: String) {
+        val frame = GatewayFrame("ephemeral", Envelope(0, "", type, body, 0), groupId = groupId)
+        socket?.send(ApiClient.json.encodeToString(GatewayFrame.serializer(), frame))
+    }
+
     private fun ack(id: Long) {
         val frame = ApiClient.json.encodeToString(GatewayFrame.serializer(), GatewayFrame("ack", ids = listOf(id)))
         socket?.send(frame)
@@ -105,7 +118,7 @@ class GatewayClient(
         override fun onMessage(webSocket: WebSocket, text: String) {
             val frame = runCatching { ApiClient.json.decodeFromString(GatewayFrame.serializer(), text) }.getOrNull() ?: return
             when (frame.t) {
-                "message" -> frame.envelope?.let { inbox.trySend(it) }
+                "message", "group", "group_removed" -> inbox.trySend(frame)
                 "ready" -> {
                     _state.value = State.Online
                     scope.launch { runCatching { onReady() } }

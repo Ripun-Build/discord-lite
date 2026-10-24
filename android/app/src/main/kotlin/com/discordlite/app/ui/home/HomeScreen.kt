@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import com.discordlite.app.data.SampleData
 import com.discordlite.app.ui.chats.ChatsScreen
 import com.discordlite.app.ui.chats.NewChatSheetContent
+import com.discordlite.app.ui.chats.NewGroupSheetContent
 import com.discordlite.app.ui.feed.FeedScreen
 import com.discordlite.app.ui.profile.ProfileScreen
 import com.discordlite.app.ui.servers.InviteSheetContent
@@ -40,6 +41,7 @@ import dev.chrisbanes.haze.hazeSource
 
 private sealed interface HomeSheet {
     data object NewChat : HomeSheet
+    data object NewGroup : HomeSheet
     data class Invite(val serverId: String) : HomeSheet
 }
 
@@ -57,6 +59,7 @@ private fun tabs(unread: Int) = listOf(
 @Composable
 fun HomeScreen(
     onOpenChat: (String) -> Unit,
+    onOpenGroup: (String) -> Unit,
     onOpenChannel: (String, String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenFriends: () -> Unit,
@@ -76,7 +79,7 @@ fun HomeScreen(
         Box(Modifier.fillMaxSize().hazeSource(hazeState)) {
             holder.SaveableStateProvider(tab) {
                 when (tab) {
-                    0 -> ChatsScreen(onOpenChat = onOpenChat, onNewChat = { sheet = HomeSheet.NewChat }, onOpenFriends = onOpenFriends)
+                    0 -> ChatsScreen(onOpenChat = onOpenChat, onOpenGroup = onOpenGroup, onNewChat = { sheet = HomeSheet.NewChat }, onOpenFriends = onOpenFriends)
                     1 -> ServersScreen(onOpenChannel = onOpenChannel, onInvite = { sheet = HomeSheet.Invite(it) })
                     2 -> FeedScreen()
                     else -> ProfileScreen(onOpenSettings = onOpenSettings, onEditProfile = onEditProfile)
@@ -96,6 +99,14 @@ fun HomeScreen(
                     onFindFriends = {
                         sheet = null
                         onOpenFriends()
+                    },
+                    onNewGroup = { sheet = HomeSheet.NewGroup },
+                )
+                HomeSheet.NewGroup -> NewGroupSheetContent(
+                    onCancel = { sheet = null },
+                    onCreated = {
+                        sheet = null
+                        onOpenGroup(it)
                     },
                 )
                 is HomeSheet.Invite -> InviteSheetContent(s.serverId)

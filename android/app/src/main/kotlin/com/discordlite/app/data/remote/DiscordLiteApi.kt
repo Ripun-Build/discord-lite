@@ -39,11 +39,20 @@ interface DiscordLiteApi {
     @PUT("v1/keys") suspend fun uploadKeys(@Body body: UploadKeysBody): Response<Unit>
     @POST("v1/keys/topup") suspend fun topUpKeys(@Body body: TopUpKeysBody): Response<Unit>
     @GET("v1/keys/count") suspend fun keyCounts(): PreKeyCounts
-    @GET("v1/keys/{userId}") suspend fun preKeyBundle(@Path("userId") userId: String): PreKeyBundleResponse
+    @GET("v1/keys/{userId}") suspend fun preKeyBundle(@Path("userId") userId: String, @Query("groupId") groupId: String? = null): PreKeyBundleResponse
 
     @POST("v1/messages") suspend fun sendMessage(@Body body: SendMessageBody): SendMessageResponse
     @GET("v1/messages") suspend fun pendingMessages(): List<Envelope>
     @POST("v1/messages/ack") suspend fun ack(@Body body: AckBody): Response<Unit>
+
+    @GET("v1/groups") suspend fun groups(): List<GroupResponse>
+    @POST("v1/groups") suspend fun createGroup(@Body body: CreateGroupBody): GroupResponse
+    @GET("v1/groups/{groupId}") suspend fun group(@Path("groupId") groupId: String): GroupResponse
+    @PATCH("v1/groups/{groupId}") suspend fun renameGroup(@Path("groupId") groupId: String, @Body body: RenameGroupBody): GroupResponse
+    @POST("v1/groups/{groupId}/members") suspend fun addGroupMembers(@Path("groupId") groupId: String, @Body body: AddMembersBody): GroupResponse
+    /** Your own id = leave. */
+    @DELETE("v1/groups/{groupId}/members/{userId}") suspend fun removeGroupMember(@Path("groupId") groupId: String, @Path("userId") userId: String): Response<Unit>
+    @POST("v1/groups/{groupId}/messages") suspend fun sendGroupMessage(@Path("groupId") groupId: String, @Body body: SendGroupMessageBody): SendMessageResponse
 
     @PUT("v1/push/token") suspend fun savePushToken(@Body body: PushTokenBody): Response<Unit>
     @DELETE("v1/push/token") suspend fun deletePushToken(): Response<Unit>

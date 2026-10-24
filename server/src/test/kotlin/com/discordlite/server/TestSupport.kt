@@ -4,19 +4,28 @@ import com.discordlite.server.auth.AuthResponse
 import com.discordlite.server.config.AppConfig
 import com.discordlite.server.db.Db
 import com.discordlite.server.mail.Mailer
+import com.discordlite.server.messaging.GatewayFrame
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.ApplicationTestBuilder
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import org.testcontainers.postgresql.PostgreSQLContainer
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.random.Random
@@ -109,4 +118,39 @@ suspend fun HttpClient.postJson(path: String, body: Any, token: String? = null) 
     contentType(ContentType.Application.Json)
     setBody(body)
     if (token != null) bearerAuth(token)
+}
+
+private val frameJson = Json { ignoreUnknownKeys = true }
+
+/** The next frame on a gateway connection (fails after 5 s). */
+suspend fun DefaultClientWebSocketSession.nextFrame(): GatewayFrame =
+    withTimeout(5_000) {
+        val frame = incoming.receive() as Frame.Text
+        frameJson.decodeFromString(GatewayFrame.serializer(), frame.readText())
+    }
+
+/** A fresh account with a real Signal client whose public keys are published. */
+suspend fun HttpClient.signalUser(app: TestApp, oneTime: Int = 5, kyber: Int = 3): Pair<TestUser, SignalTestClient> {
+    val user = newUser(app)
+    val signal = SignalTestClient(user.id)
+    val upload = put("/v1/keys") {
+        bearerAuth(user.token)
+        contentType(ContentType.Application.Json)
+        setBody(signal.keyUpload(oneTime, kyber))
+    }
+    assertEquals(HttpStatusCode.NoContent, upload.status, upload.bodyAsText())
+    return user to signal
+}
+
+suspend fun HttpClient.befriend(a: TestUser, b: TestUser) {
+    postJson("/v1/friends/requests", mapOf("userId" to b.id), a.token)
+    post("/v1/friends/requests/${a.id}/accept") { bearerAuth(b.token) }
+}
+
+suspend fun HttpClient.setPolicy(user: TestUser, policy: String) {
+    patch("/v1/me") {
+        bearerAuth(user.token)
+        contentType(ContentType.Application.Json)
+        setBody(mapOf("dmPolicy" to policy))
+    }
 }

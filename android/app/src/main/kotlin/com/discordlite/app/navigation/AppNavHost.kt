@@ -33,6 +33,8 @@ import com.discordlite.app.ui.auth.VerifyEmailScreen
 import com.discordlite.app.ui.auth.WelcomeScreen
 import com.discordlite.app.ui.chats.ChannelScreen
 import com.discordlite.app.ui.chats.DirectChatScreen
+import com.discordlite.app.ui.chats.GroupChatScreen
+import com.discordlite.app.ui.chats.GroupInfoScreen
 import com.discordlite.app.ui.home.HomeScreen
 import com.discordlite.app.ui.profile.SettingsScreen
 import com.discordlite.designsystem.theme.DlMotion
@@ -46,6 +48,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class VerifyRoute(val email: String)
 @Serializable object HomeRoute
 @Serializable data class ConversationRoute(val chatId: String)
+@Serializable data class GroupChatRoute(val groupId: String)
+@Serializable data class GroupInfoRoute(val groupId: String)
 @Serializable data class ChannelRoute(val serverId: String, val channelId: String)
 @Serializable object SettingsRoute
 @Serializable object FriendsRoute
@@ -90,7 +94,10 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
     val openChat by container.openChatRequests.collectAsStateWithLifecycle()
     LaunchedEffect(openChat) {
         val peer = openChat ?: return@LaunchedEffect
-        if (container.account.isSignedIn) navController.navigate(ConversationRoute(peer)) { launchSingleTop = true }
+        if (container.account.isSignedIn) {
+            val route: Any = if (container.groups.isGroup(peer)) GroupChatRoute(peer) else ConversationRoute(peer)
+            navController.navigate(route) { launchSingleTop = true }
+        }
         container.openChatRequests.value = null
     }
 
@@ -148,6 +155,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             }
             HomeScreen(
                 onOpenChat = { navController.navigate(ConversationRoute(it)) },
+                onOpenGroup = { navController.navigate(GroupChatRoute(it)) },
                 onOpenChannel = { server, channel -> navController.navigate(ChannelRoute(server, channel)) },
                 onOpenSettings = { navController.navigate(SettingsRoute) },
                 onOpenFriends = { navController.navigate(FriendsRoute) },
@@ -156,6 +164,18 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         }
         composable<ConversationRoute> { entry ->
             DirectChatScreen(entry.toRoute<ConversationRoute>().chatId, onBack = navController::popBackStack)
+        }
+        composable<GroupChatRoute> { entry ->
+            val groupId = entry.toRoute<GroupChatRoute>().groupId
+            GroupChatScreen(groupId, onBack = navController::popBackStack, onOpenInfo = { navController.navigate(GroupInfoRoute(groupId)) })
+        }
+        composable<GroupInfoRoute> { entry ->
+            GroupInfoScreen(
+                entry.toRoute<GroupInfoRoute>().groupId,
+                onBack = navController::popBackStack,
+                // Left the group: back to the chat list.
+                onLeft = { navController.popBackStack<HomeRoute>(inclusive = false) },
+            )
         }
         composable<ChannelRoute> { entry ->
             val route = entry.toRoute<ChannelRoute>()
