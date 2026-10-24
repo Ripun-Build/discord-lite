@@ -1,5 +1,6 @@
 package com.discordlite.server.messaging
 
+import com.discordlite.server.servers.ChannelMessageDto
 import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
 import kotlinx.serialization.Serializable
@@ -12,9 +13,12 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Server → client: `message` (an [Envelope]), `ready` (backlog delivered), `group` (a [group]
  * you're in was created or changed), `group_removed` (you left or were removed from [groupId]).
+ * Servers: `channel_message` ([channelMessage]), `channel_message_deleted` ([messageId]),
+ * `channel_typing` ([userId] in [channelId]), `server` ([serverId] changed — fetch it again),
+ * `server_removed` (you're no longer in [serverId]).
  * Client → server: `ack` (envelope [ids] stored on the device), `ephemeral` (an encrypted
  * typing event for user [to], or for everyone in [groupId] — passed on to whoever is online,
- * never stored).
+ * never stored), `channel_typing` (you're typing in [channelId]).
  */
 @Serializable
 data class GatewayFrame(
@@ -24,6 +28,11 @@ data class GatewayFrame(
     val to: String? = null,
     val groupId: String? = null,
     val group: GroupDto? = null,
+    val serverId: String? = null,
+    val channelId: String? = null,
+    val channelMessage: ChannelMessageDto? = null,
+    val messageId: Long? = null,
+    val userId: String? = null,
 )
 
 /**

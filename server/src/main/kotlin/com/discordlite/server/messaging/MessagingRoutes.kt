@@ -4,6 +4,7 @@ import com.discordlite.server.common.notFound
 import com.discordlite.server.plugins.userId
 import com.discordlite.server.push.PushTokenRequest
 import com.discordlite.server.push.PushTokens
+import com.discordlite.server.servers.ServerService
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -21,7 +22,7 @@ import io.ktor.websocket.readText
 import java.util.UUID
 
 /** All routes here require a signed-in user (mounted inside `authenticate`). */
-fun Route.messagingRoutes(keys: KeyService, messages: MessageService, groups: GroupService, gateway: Gateway, pushTokens: PushTokens) {
+fun Route.messagingRoutes(keys: KeyService, messages: MessageService, groups: GroupService, servers: ServerService, gateway: Gateway, pushTokens: PushTokens) {
     route("/v1/push/token") {
         put {
             pushTokens.save(call.userId, call.receive<PushTokenRequest>().token)
@@ -98,6 +99,7 @@ fun Route.messagingRoutes(keys: KeyService, messages: MessageService, groups: Gr
                     } else {
                         messages.relayEphemeral(user, parsed.to, parsed.envelope?.type, parsed.envelope?.body)
                     }
+                    "channel_typing" -> servers.relayTyping(user, parsed.channelId)
                 }
             }
         } finally {

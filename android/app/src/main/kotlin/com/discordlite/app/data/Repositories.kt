@@ -22,6 +22,7 @@ import com.discordlite.app.crypto.KeyManager
 import com.discordlite.app.chat.GatewayClient
 import com.discordlite.app.chat.ChatRepository
 import com.discordlite.app.chat.GroupChats
+import com.discordlite.app.servers.ServersRepository
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.discordlite.app.BuildConfig
 import com.discordlite.app.data.remote.ApiClient
@@ -161,13 +162,21 @@ class AppContainer(context: Context) {
             groups.sync()
             chat.retryPending()
             groups.retryPending()
+            runCatching { servers.refresh() }
+            servers.catchUpMentions()
         },
-        onFrame = groups::onFrame,
+        onFrame = { frame -> if (frame.t.startsWith("group")) groups.onFrame(frame) else servers.onFrame(frame) },
     ).also { gateway ->
         chat.sendEphemeral = gateway::sendEphemeral
         groups.sendEphemeral = gateway::sendGroupEphemeral
     }
     val notifier = Notifier(context, settings).also { n -> chat.onChatOpened = n::clear }
+
+    /** Servers and channels (not end-to-end encrypted; kept in memory only). */
+    val servers: ServersRepository = ServersRepository(api, scope, selfId).also { repo ->
+        repo.sendTyping = { gateway.sendChannelTyping(it) }
+        repo.onMention = { alerts -> notifier.showMentions(alerts) }
+    }
 
     /** Set when a notification is tapped; the navigation opens that chat. */
     val openChatRequests = MutableStateFlow<String?>(null)
@@ -207,6 +216,7 @@ class AppContainer(context: Context) {
         val incoming = envelopes.mapNotNull { envelope -> chat.receive(envelope) }
         if (envelopes.isNotEmpty()) runCatching { apiCallUnit { api.ack(AckBody(envelopes.map { it.id })) } }
         notifier.show(incoming)
+        servers.catchUpMentions()
     }
 
     private suspend fun currentPushToken(): String = suspendCancellableCoroutine { cont ->
@@ -224,6 +234,7 @@ class AppContainer(context: Context) {
         notifier.clearAll()
         account.signOut()
         social.clear()
+        servers.clear()
         withContext(Dispatchers.IO) { local.wipe() }
     }
 

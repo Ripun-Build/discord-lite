@@ -107,6 +107,11 @@ data class PreKeyBundleResponse(
     val to: String? = null,
     val groupId: String? = null,
     val group: GroupResponse? = null,
+    val serverId: String? = null,
+    val channelId: String? = null,
+    val channelMessage: ChannelMessageResponse? = null,
+    val messageId: Long? = null,
+    val userId: String? = null,
 )
 @Serializable data class PushTokenBody(val token: String)
 
@@ -129,3 +134,63 @@ data class GroupResponse(
 @Serializable data class RenameGroupBody(val name: String?)
 @Serializable data class AddMembersBody(val userIds: List<String>)
 @Serializable data class SendGroupMessageBody(val type: Int, val body: String, val clientId: String, val epoch: Int)
+
+// Phase 4: servers, channels and roles. Server channels are NOT end-to-end encrypted.
+
+object Permissions {
+    const val MANAGE_SERVER = 1L
+    const val MANAGE_CHANNELS = 2L
+    const val MANAGE_ROLES = 4L
+    const val KICK_MEMBERS = 8L
+    const val MANAGE_MESSAGES = 16L
+    const val ADD_MEMBERS = 32L
+}
+
+@Serializable data class CategoryResponse(val id: String, val name: String, val position: Int)
+@Serializable data class ChannelResponse(val id: String, val name: String, val categoryId: String? = null, val position: Int, val unread: Boolean = false, val mentions: Int = 0)
+@Serializable data class RoleResponse(val id: String, val name: String, val color: Int, val permissions: Long, val position: Int, val isDefault: Boolean, val memberCount: Int)
+@Serializable data class ServerSummaryResponse(val id: String, val name: String, val ownerId: String, val unread: Boolean, val mentions: Int)
+
+@Serializable
+data class ServerResponse(
+    val id: String,
+    val name: String,
+    val ownerId: String,
+    val myPermissions: Long,
+    val categories: List<CategoryResponse>,
+    val channels: List<ChannelResponse>,
+    val roles: List<RoleResponse>,
+    val memberCount: Int,
+    val createdAt: Long,
+) {
+    fun can(permission: Long) = myPermissions and permission != 0L
+}
+
+@Serializable data class ServerMemberResponse(val id: String, val username: String, val displayName: String, val roleIds: List<String>, val joinedAt: Long)
+
+@Serializable
+data class ChannelMessageResponse(
+    val id: Long,
+    val serverId: String,
+    val channelId: String,
+    val authorId: String,
+    val authorUsername: String,
+    val authorDisplayName: String,
+    val body: String,
+    val createdAt: Long,
+    val mentionIds: List<String> = emptyList(),
+    val clientId: String? = null,
+)
+
+@Serializable data class MentionResponse(val message: ChannelMessageResponse, val serverName: String, val channelName: String)
+
+@Serializable data class CreateServerBody(val name: String, val template: String, val memberIds: List<String>)
+@Serializable data class RenameServerBody(val name: String)
+@Serializable data class CreateChannelBody(val name: String, val categoryId: String? = null)
+@Serializable data class UpdateChannelBody(val name: String? = null, val categoryId: String? = null, val uncategorized: Boolean = false)
+@Serializable data class CategoryBody(val name: String)
+@Serializable data class RoleBody(val name: String, val color: Int, val permissions: Long)
+@Serializable data class RoleIdsBody(val roleIds: List<String>)
+@Serializable data class SendChannelMessageBody(val body: String, val clientId: String)
+@Serializable data class ReadBody(val lastReadId: Long)
+@Serializable data class MentionAckBody(val messageIds: List<Long>)
