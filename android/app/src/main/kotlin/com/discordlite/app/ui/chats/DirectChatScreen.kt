@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -89,9 +90,6 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
     val typingPeers by chat.typing.collectAsStateWithLifecycle()
     val peerTyping = peerId in typingPeers
     var draft by rememberSaveable { mutableStateOf("") }
-    // Plain set (not observable state): it only remembers which bubbles already played their entrance.
-    val justSent = remember { HashSet<String>() }
-    val listState = rememberLazyListState()
     // Ask for notifications the first time you send a message — that's when replies matter.
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
@@ -101,22 +99,6 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
     LifecycleResumeEffect(peerId) {
         scope.launch { chat.open(peerId) }
         onPauseOrDispose { chat.close(peerId) }
-    }
-
-    val display = messages.asReversed()
-    val latestMine = messages.lastOrNull { it.fromMe }?.clientId
-    // The list first draws empty (just the header); when history loads, jump to the newest message
-    // instead of keeping the header in view. After that, follow new messages only if already at the bottom.
-    var initialScrollDone by remember(peerId) { mutableStateOf(false) }
-    LaunchedEffect(messages.size, peerTyping) {
-        if (!initialScrollDone) {
-            if (messages.isNotEmpty()) {
-                listState.scrollToItem(0)
-                initialScrollDone = true
-            }
-        } else if (listState.firstVisibleItemIndex <= 1) {
-            listState.animateScrollToItem(0)
-        }
     }
 
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -171,49 +153,126 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
             )
         },
     ) {
-        LazyColumn(
-            state = listState,
-            reverseLayout = true,
-            modifier = Modifier.fillMaxSize(),
+        ChatMessageList(
+            key = peerId,
+            messages = messages,
+            typingName = if (peerTyping) name else null,
             contentPadding = PaddingValues(top = statusTop + TopBarHeight + 18.dp, bottom = 74.dp + navBottom),
-        ) {
-            if (peerTyping) {
-                item(key = "typing") {
-                    TypingIndicator(name, bubble = true, Modifier.animateItem(placementSpec = DlMotion.smooth(IntOffset.VisibilityThreshold)))
-                }
+            onRetry = { scope.launch { chat.retry(it) } },
+        )
+    }
+}
+
+/**
+ * The scrolling list of bubbles, newest at the bottom. Shared by DMs and group chats; in a group,
+ * [senderName] names who wrote each incoming message (shown with their avatar, iMessage-style).
+ */
+@Composable
+internal fun ChatMessageList(
+    key: String,
+    messages: List<ChatMessage>,
+    typingName: String?,
+    contentPadding: PaddingValues,
+    onRetry: (ChatMessage) -> Unit,
+    senderName: ((String) -> String)? = null,
+) {
+    // Plain set (not observable state): it only remembers which bubbles already played their entrance.
+    val justSent = remember(key) { HashSet<String>() }
+    val listState = rememberLazyListState()
+    val display = messages.asReversed()
+    val latestMine = messages.lastOrNull { it.fromMe }?.clientId
+    // The list first draws empty (just the header); when history loads, jump to the newest message
+    // instead of keeping the header in view. After that, follow new messages only if already at the bottom.
+    var initialScrollDone by remember(key) { mutableStateOf(false) }
+    LaunchedEffect(messages.size, typingName != null) {
+        if (!initialScrollDone) {
+            if (messages.isNotEmpty()) {
+                listState.scrollToItem(0)
+                initialScrollDone = true
             }
-            itemsIndexed(display, key = { _, m -> m.localId }) { index, message ->
-                val newer = display.getOrNull(index - 1)
-                val older = display.getOrNull(index + 1)
-                val first = older == null || older.fromMe != message.fromMe || older.status == MessageStatus.NOTICE
-                val last = newer == null || newer.fromMe != message.fromMe || newer.status == MessageStatus.NOTICE
-                // Animate only messages that appear while the chat is open.
-                val animate = message.fromMe && message.status == MessageStatus.SENDING && justSent.add(message.clientId)
-                Box(
-                    Modifier
-                        .animateItem(fadeInSpec = null, placementSpec = DlMotion.smooth(IntOffset.VisibilityThreshold), fadeOutSpec = null)
-                        .sendAnimation(animate, mine = message.fromMe) {},
-                ) {
-                    if (message.status == MessageStatus.NOTICE) {
-                        Notice(message.body)
-                    } else {
-                        Bubble(
-                            message = message,
-                            firstOfGroup = first,
-                            lastOfGroup = last,
-                            showStatus = message.fromMe && message.clientId == latestMine || message.status == MessageStatus.FAILED,
-                            onRetry = { scope.launch { chat.retry(message) } },
-                        )
-                    }
-                }
-            }
-            item(key = "header") { EncryptionNotice() }
+        } else if (listState.firstVisibleItemIndex <= 1) {
+            listState.animateScrollToItem(0)
         }
+    }
+    LazyColumn(
+        state = listState,
+        reverseLayout = true,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = contentPadding,
+    ) {
+        if (typingName != null) {
+            item(key = "typing") {
+                TypingIndicator(typingName, bubble = true, Modifier.animateItem(placementSpec = DlMotion.smooth(IntOffset.VisibilityThreshold)))
+            }
+        }
+        itemsIndexed(display, key = { _, m -> m.localId }) { index, message ->
+            val newer = display.getOrNull(index - 1)
+            val older = display.getOrNull(index + 1)
+            fun sameRun(other: ChatMessage?) =
+                other != null && other.fromMe == message.fromMe && other.senderId == message.senderId && other.status != MessageStatus.NOTICE
+            // Animate only messages that appear while the chat is open.
+            val animate = message.fromMe && message.status == MessageStatus.SENDING && justSent.add(message.clientId)
+            Box(
+                Modifier
+                    .animateItem(fadeInSpec = null, placementSpec = DlMotion.smooth(IntOffset.VisibilityThreshold), fadeOutSpec = null)
+                    .sendAnimation(animate, mine = message.fromMe) {},
+            ) {
+                if (message.status == MessageStatus.NOTICE) {
+                    Notice(message.body)
+                } else {
+                    Bubble(
+                        message = message,
+                        firstOfGroup = !sameRun(older),
+                        lastOfGroup = !sameRun(newer),
+                        showStatus = message.fromMe && message.clientId == latestMine || message.status == MessageStatus.FAILED,
+                        onRetry = { onRetry(message) },
+                        sender = if (!message.fromMe) message.senderId?.let { senderName?.invoke(it) } else null,
+                    )
+                }
+            }
+        }
+        item(key = "header") { EncryptionNotice() }
+    }
+}
+
+/** [sender] is set for other people's messages in a group: their name heads each run, their avatar ends it. */
+@Composable
+private fun Bubble(message: ChatMessage, firstOfGroup: Boolean, lastOfGroup: Boolean, showStatus: Boolean, onRetry: () -> Unit, sender: String? = null) {
+    if (sender != null) {
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.Bottom) {
+            Box(Modifier.width(30.dp).padding(bottom = if (lastOfGroup) 22.dp else 0.dp)) {
+                if (lastOfGroup) Avatar(sender, 30.dp)
+            }
+            Column(Modifier.weight(1f)) {
+                if (firstOfGroup) {
+                    Text(
+                        sender,
+                        style = DlTheme.type.caption,
+                        color = DlTheme.colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 20.dp, top = 10.dp),
+                    )
+                }
+                // The name above already spaces the run from the one before.
+                BubbleBody(message, firstOfGroup, lastOfGroup, showStatus, onRetry, startPadding = 6.dp, topPadding = 2.dp)
+            }
+        }
+    } else {
+        BubbleBody(message, firstOfGroup, lastOfGroup, showStatus, onRetry)
     }
 }
 
 @Composable
-private fun Bubble(message: ChatMessage, firstOfGroup: Boolean, lastOfGroup: Boolean, showStatus: Boolean, onRetry: () -> Unit) {
+private fun BubbleBody(
+    message: ChatMessage,
+    firstOfGroup: Boolean,
+    lastOfGroup: Boolean,
+    showStatus: Boolean,
+    onRetry: () -> Unit,
+    startPadding: Dp = 12.dp,
+    topPadding: Dp = if (firstOfGroup) 10.dp else 2.dp,
+) {
     val colors = DlTheme.colors
     val mine = message.fromMe
     val big = 20.dp
@@ -227,8 +286,8 @@ private fun Bubble(message: ChatMessage, firstOfGroup: Boolean, lastOfGroup: Boo
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .padding(top = if (firstOfGroup) 10.dp else 2.dp),
+            .padding(start = startPadding, end = 12.dp)
+            .padding(top = topPadding),
         horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
     ) {
         Box(
@@ -261,7 +320,7 @@ private fun Bubble(message: ChatMessage, firstOfGroup: Boolean, lastOfGroup: Boo
 }
 
 @Composable
-private fun Notice(text: String) {
+internal fun Notice(text: String) {
     val colors = DlTheme.colors
     Box(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
         Row(

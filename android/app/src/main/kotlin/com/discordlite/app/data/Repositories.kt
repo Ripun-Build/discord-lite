@@ -21,6 +21,7 @@ import com.discordlite.app.crypto.SignalStore
 import com.discordlite.app.crypto.KeyManager
 import com.discordlite.app.chat.GatewayClient
 import com.discordlite.app.chat.ChatRepository
+import com.discordlite.app.chat.GroupChats
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.discordlite.app.BuildConfig
 import com.discordlite.app.data.remote.ApiClient
@@ -148,9 +149,24 @@ class AppContainer(context: Context) {
     private val local = LocalDatabase(context)
     private val signalStore: SignalStore = SignalStore(local) { address -> chat.onIdentityChanged(address.substringBefore('.')) }
     private val keys = KeyManager(api, signalStore, local)
-    val chat: ChatRepository = ChatRepository(api, signalStore, local, social, settings, scope) { account.me.value?.id ?: local.db.metaGet(OWNER) }
-    val gateway = GatewayClient(clients.http, BuildConfig.API_BASE_URL, scope, { chat.receive(it) }, chat::retryPending)
-        .also { gateway -> chat.sendEphemeral = gateway::sendEphemeral }
+    private val selfId: () -> String? = { account.me.value?.id ?: local.db.metaGet(OWNER) }
+    val chat: ChatRepository = ChatRepository(api, signalStore, local, social, settings, scope, selfId)
+    val groups = GroupChats(api, signalStore, local, chat, settings, scope, selfId).also { chat.groups = it }
+    val gateway = GatewayClient(
+        clients.http,
+        BuildConfig.API_BASE_URL,
+        scope,
+        onEnvelope = { chat.receive(it) },
+        onReady = {
+            groups.sync()
+            chat.retryPending()
+            groups.retryPending()
+        },
+        onFrame = groups::onFrame,
+    ).also { gateway ->
+        chat.sendEphemeral = gateway::sendEphemeral
+        groups.sendEphemeral = gateway::sendGroupEphemeral
+    }
     val notifier = Notifier(context, settings).also { n -> chat.onChatOpened = n::clear }
 
     /** Set when a notification is tapped; the navigation opens that chat. */

@@ -10,8 +10,10 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
+import io.ktor.server.routing.RoutingCall
 import io.ktor.server.routing.route
 import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.Frame
@@ -19,7 +21,7 @@ import io.ktor.websocket.readText
 import java.util.UUID
 
 /** All routes here require a signed-in user (mounted inside `authenticate`). */
-fun Route.messagingRoutes(keys: KeyService, messages: MessageService, gateway: Gateway, pushTokens: PushTokens) {
+fun Route.messagingRoutes(keys: KeyService, messages: MessageService, groups: GroupService, gateway: Gateway, pushTokens: PushTokens) {
     route("/v1/push/token") {
         put {
             pushTokens.save(call.userId, call.receive<PushTokenRequest>().token)
@@ -43,7 +45,8 @@ fun Route.messagingRoutes(keys: KeyService, messages: MessageService, gateway: G
         get("/count") { call.respond(keys.counts(call.userId)) }
         get("/{userId}") {
             val target = runCatching { UUID.fromString(call.parameters["userId"]) }.getOrNull() ?: throw notFound("user_not_found")
-            call.respond(messages.bundleFor(call.userId, target))
+            // ?groupId= : fetching keys of a fellow group member (allowed by membership, not "who can DM me").
+            call.respond(messages.bundleFor(call.userId, target, call.request.queryParameters["groupId"]))
         }
     }
 
@@ -53,6 +56,25 @@ fun Route.messagingRoutes(keys: KeyService, messages: MessageService, gateway: G
         post("/ack") {
             messages.ack(call.userId, call.receive<AckRequest>().ids)
             call.respond(HttpStatusCode.NoContent)
+        }
+    }
+
+    route("/v1/groups") {
+        get { call.respond(groups.list(call.userId)) }
+        post { call.respond(HttpStatusCode.Created, groups.create(call.userId, call.receive())) }
+        route("/{groupId}") {
+            get { call.respond(groups.get(call.userId, call.groupId())) }
+            patch { call.respond(groups.rename(call.userId, call.groupId(), call.receive())) }
+            post("/members") { call.respond(groups.addMembers(call.userId, call.groupId(), call.receive())) }
+            // Your own id = leave the group.
+            delete("/members/{userId}") {
+                val target = runCatching { UUID.fromString(call.parameters["userId"]) }.getOrNull() ?: throw notFound("not_a_member")
+                groups.removeMember(call.userId, call.groupId(), target)
+                call.respond(HttpStatusCode.NoContent)
+            }
+            post("/messages") {
+                call.respond(HttpStatusCode.Accepted, messages.sendToGroup(call.userId, call.parameters["groupId"], call.receive()))
+            }
         }
     }
 
@@ -71,7 +93,11 @@ fun Route.messagingRoutes(keys: KeyService, messages: MessageService, gateway: G
                 val parsed = runCatching { gateway.json.decodeFromString(GatewayFrame.serializer(), frame.readText()) }.getOrNull() ?: continue
                 when (parsed.t) {
                     "ack" -> messages.ack(user, parsed.ids.orEmpty())
-                    "ephemeral" -> messages.relayEphemeral(user, parsed.to, parsed.envelope?.type, parsed.envelope?.body)
+                    "ephemeral" -> if (parsed.groupId != null) {
+                        messages.relayGroupEphemeral(user, parsed.groupId, parsed.envelope?.type, parsed.envelope?.body)
+                    } else {
+                        messages.relayEphemeral(user, parsed.to, parsed.envelope?.type, parsed.envelope?.body)
+                    }
                 }
             }
         } finally {
@@ -79,3 +105,6 @@ fun Route.messagingRoutes(keys: KeyService, messages: MessageService, gateway: G
         }
     }
 }
+
+private fun RoutingCall.groupId(): UUID =
+    runCatching { UUID.fromString(parameters["groupId"]) }.getOrNull() ?: throw notFound("group_not_found")

@@ -88,9 +88,44 @@ data class PreKeyBundleResponse(
     val oneTimePreKey: OneTimePreKeyBody? = null,
 )
 
-@Serializable data class Envelope(val id: Long, val senderId: String, val type: Int, val body: String, val sentAt: Long)
-@Serializable data class SendMessageBody(val recipientId: String, val type: Int, val body: String, val clientId: String, val registrationId: Int? = null)
+/** [groupId] is set for group messages and for 1:1 envelopes sent inside a group (sender keys, receipts). */
+@Serializable data class Envelope(val id: Long, val senderId: String, val type: Int, val body: String, val sentAt: Long, val groupId: String? = null)
+@Serializable data class SendMessageBody(
+    val recipientId: String,
+    val type: Int,
+    val body: String,
+    val clientId: String,
+    val registrationId: Int? = null,
+    val groupId: String? = null,
+)
 @Serializable data class SendMessageResponse(val id: Long, val sentAt: Long)
 @Serializable data class AckBody(val ids: List<Long>)
-@Serializable data class GatewayFrame(val t: String, val envelope: Envelope? = null, val ids: List<Long>? = null, val to: String? = null)
+@Serializable data class GatewayFrame(
+    val t: String,
+    val envelope: Envelope? = null,
+    val ids: List<Long>? = null,
+    val to: String? = null,
+    val groupId: String? = null,
+    val group: GroupResponse? = null,
+)
 @Serializable data class PushTokenBody(val token: String)
+
+// Phase 3: group DMs. The server knows who's in a group; what's said is end-to-end encrypted.
+
+@Serializable data class GroupMemberResponse(val id: String, val username: String, val displayName: String)
+
+/** [epoch] goes up whenever someone joins or leaves. */
+@Serializable
+data class GroupResponse(
+    val id: String,
+    val name: String? = null,
+    val ownerId: String,
+    val epoch: Int,
+    val members: List<GroupMemberResponse>,
+    val createdAt: Long,
+)
+
+@Serializable data class CreateGroupBody(val name: String?, val memberIds: List<String>)
+@Serializable data class RenameGroupBody(val name: String?)
+@Serializable data class AddMembersBody(val userIds: List<String>)
+@Serializable data class SendGroupMessageBody(val type: Int, val body: String, val clientId: String, val epoch: Int)

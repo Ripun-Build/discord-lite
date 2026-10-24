@@ -3,6 +3,8 @@ package com.discordlite.server.tools
 import com.discordlite.server.SignalTestClient
 import com.discordlite.server.auth.AuthResponse
 import com.discordlite.server.messaging.GatewayFrame
+import com.discordlite.server.messaging.GroupDto
+import com.discordlite.server.messaging.SendGroupMessageRequest
 import com.discordlite.server.messaging.SendMessageRequest
 import com.discordlite.server.messaging.b64
 import com.discordlite.server.social.FriendsResponse
@@ -42,6 +44,9 @@ import java.util.UUID
  * Signs in (creating the account the first time, reading its code from Mailpit), publishes real
  * Signal keys, accepts friend requests, and answers every message with "echo: …" — encrypted
  * end to end exactly like the app does. Its keys live in memory, so each run is a "new phone".
+ *
+ * Add it to a group and it echoes there too, with its own sender key (shared with each member over
+ * 1:1 sessions first, as the app does).
  */
 fun main() = runBlocking {
     val server = System.getenv("BOT_SERVER") ?: "http://localhost:8080"
@@ -104,13 +109,111 @@ fun main() = runBlocking {
         }
     }
 
+    fun control(kind: String, state: String, ids: List<String>? = null) = buildJsonObject {
+        put("v", 1)
+        put("kind", kind)
+        put("id", UUID.randomUUID().toString())
+        put("ts", System.currentTimeMillis())
+        put("state", state)
+        if (ids != null) put("ids", kotlinx.serialization.json.JsonArray(ids.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+    }.toString()
+
+    // Groups: our sender key per group, and who already has it.
+    val myKeys = mutableMapOf<String, UUID>()
+    val sharedWith = mutableMapOf<String, MutableSet<String>>()
+    val knownMembers = mutableMapOf<String, Set<String>>()
+
+    suspend fun pairwise(to: String, groupId: String, body: String) {
+        if (!signal.store.containsSession(org.signal.libsignal.protocol.SignalProtocolAddress(to, SignalTestClient.DEVICE))) {
+            val bundle = http.get("$server/v1/keys/$to?groupId=$groupId") { bearerAuth(token) }
+            if (!bundle.status.isSuccess()) return println("No keys for $to in group: ${bundle.bodyAsText()}")
+            signal.startSession(bundle.body())
+        }
+        val c = signal.encryptBytes(to, body.toByteArray())
+        post("/v1/messages", SendMessageRequest(to, c.type, b64(c.serialize()), UUID.randomUUID().toString(), groupId = groupId), token)
+    }
+
+    suspend fun sendToGroup(groupId: String, body: String) {
+        repeat(2) {
+            val group = http.get("$server/v1/groups/$groupId") { bearerAuth(token) }.body<GroupDto>()
+            val members = group.members.map { it.id }.toSet() - me
+            // Someone left since last time: new key, so they can't read what comes next.
+            if (knownMembers[groupId]?.let { (it - members).isNotEmpty() } == true) {
+                myKeys.remove(groupId)
+                sharedWith.remove(groupId)
+            }
+            knownMembers[groupId] = members
+            val distributionId = myKeys.getOrPut(groupId) { UUID.randomUUID() }
+            val shared = sharedWith.getOrPut(groupId) { mutableSetOf() }
+            val distribution = b64(signal.senderKeyFor(distributionId).serialize())
+            (members - shared).forEach { member ->
+                val keyPayload = buildJsonObject {
+                    put("v", 1)
+                    put("kind", "sender_key")
+                    put("id", UUID.randomUUID().toString())
+                    put("ts", System.currentTimeMillis())
+                    put("key", distribution)
+                }.toString()
+                pairwise(member, groupId, keyPayload)
+                shared += member
+            }
+            val c = signal.encryptForGroup(distributionId, body)
+            val sent = post("/v1/groups/$groupId/messages", SendGroupMessageRequest(c.type, b64(c.serialize()), UUID.randomUUID().toString(), group.epoch), token)
+            if (sent.status.isSuccess()) return
+            if (sent.status != HttpStatusCode.Conflict) return println("Group send failed: ${sent.bodyAsText()}")
+        }
+    }
+
     // 4. Echo every message back, encrypted.
     http.webSocket("${server.replaceFirst("http", "ws")}/v1/gateway", request = { bearerAuth(token) }) {
         println("Connected. Waiting for messages… (Ctrl+C to stop)")
         for (frame in incoming) {
             if (frame !is Frame.Text) continue
             val event = json.decodeFromString(GatewayFrame.serializer(), frame.readText())
+            if (event.t == "group") println("Group \"${event.group?.name ?: event.group?.id}\" now has ${event.group?.members?.size} members")
             val envelope = event.envelope ?: continue
+            val groupId = envelope.groupId
+            if (groupId != null) {
+                // A group message, or a 1:1 envelope inside the group (a sender key, a receipt).
+                val text = runCatching {
+                    if (envelope.type == org.signal.libsignal.protocol.message.CiphertextMessage.SENDERKEY_TYPE) {
+                        signal.decryptGroup(envelope)
+                    } else {
+                        String(signal.decryptBytes(envelope))
+                    }
+                }.getOrElse {
+                    println("Couldn't decrypt group envelope ${envelope.id} (${it.javaClass.simpleName}) — skipping")
+                    null
+                }
+                if (envelope.id > 0) send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), GatewayFrame("ack", ids = listOf(envelope.id)))))
+                val payload = text?.let { runCatching { json.parseToJsonElement(it).jsonObject }.getOrNull() } ?: continue
+                when (payload["kind"]?.jsonPrimitive?.content) {
+                    "sender_key" -> payload["key"]?.jsonPrimitive?.content?.let {
+                        signal.acceptSenderKey(envelope.senderId, com.discordlite.server.messaging.unb64(it))
+                        println("Got a sender key from ${envelope.senderId} for group $groupId")
+                    }
+                    "text" -> {
+                        val said = payload["text"]?.jsonPrimitive?.content ?: continue
+                        val messageId = payload["id"]?.jsonPrimitive?.content ?: continue
+                        println("← [group] \"$said\"")
+                        launch {
+                            pairwise(envelope.senderId, groupId, control("receipt", "delivered", listOf(messageId)))
+                            delay(replyDelay)
+                            pairwise(envelope.senderId, groupId, control("receipt", "read", listOf(messageId)))
+                            val reply = buildJsonObject {
+                                put("v", 1)
+                                put("kind", "text")
+                                put("id", UUID.randomUUID().toString())
+                                put("text", "echo: $said")
+                                put("ts", System.currentTimeMillis())
+                            }.toString()
+                            sendToGroup(groupId, reply)
+                            println("→ [group] \"echo: $said\"")
+                        }
+                    }
+                }
+                continue
+            }
             val payload = runCatching { json.parseToJsonElement(signal.decrypt(envelope)).jsonObject }.getOrElse {
                 println("Couldn't decrypt envelope ${envelope.id} type ${envelope.type} (${it.javaClass.simpleName}: ${it.message}) — skipping")
                 null
@@ -127,14 +230,6 @@ fun main() = runBlocking {
                 val c = encryptedTo(body)
                 post("/v1/messages", SendMessageRequest(envelope.senderId, c.type, b64(c.serialize()), UUID.randomUUID().toString()), token)
             }
-            fun control(kind: String, state: String, ids: List<String>? = null) = buildJsonObject {
-                put("v", 1)
-                put("kind", kind)
-                put("id", UUID.randomUUID().toString())
-                put("ts", System.currentTimeMillis())
-                put("state", state)
-                if (ids != null) put("ids", kotlinx.serialization.json.JsonArray(ids.map { kotlinx.serialization.json.JsonPrimitive(it) }))
-            }.toString()
 
             // Behave like a person: delivered → typing… → read → reply.
             sendStored(control("receipt", "delivered", listOf(messageId)))

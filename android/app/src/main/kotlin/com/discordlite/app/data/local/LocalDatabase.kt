@@ -109,13 +109,42 @@ class LocalDatabase(private val context: Context) {
                 """,
                 "CREATE INDEX messages_peer_idx ON messages (peer_id, sent_at)",
             ).forEach { db.execSQL(it.trimIndent()) }
+            onUpgrade(db, 1, VERSION)
         }
 
-        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            if (oldVersion < 2) GROUPS.forEach { db.execSQL(it.trimIndent()) }
+        }
+
+        /**
+         * Version 2: group DMs. A group's chat reuses `conversations`/`messages` with the group id
+         * as `peer_id`; `sender_id` says who wrote each incoming group message.
+         */
+        private val GROUPS = listOf(
+            "ALTER TABLE conversations ADD COLUMN is_group INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE messages ADD COLUMN sender_id TEXT",
+            // active = 0 once you've left or been removed (the history stays).
+            "CREATE TABLE groups (id TEXT PRIMARY KEY, name TEXT, owner_id TEXT NOT NULL, epoch INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1)",
+            """
+            CREATE TABLE group_members (
+                group_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                username TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY (group_id, user_id)
+            )
+            """,
+            // Our own sender key for each group, and which members we've already shared it with.
+            "CREATE TABLE group_my_keys (group_id TEXT PRIMARY KEY, distribution_id TEXT NOT NULL)",
+            "CREATE TABLE group_key_shared (group_id TEXT NOT NULL, distribution_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (group_id, distribution_id, user_id))",
+            // Who has received / read each of our group messages.
+            "CREATE TABLE group_receipts (group_id TEXT NOT NULL, client_id TEXT NOT NULL, user_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY (group_id, client_id, user_id))",
+        )
     }
 
     private companion object {
-        const val VERSION = 1
+        const val VERSION = 2
         const val DB_NAME = "discordlite.db"
         const val PREFS = "local_db"
         const val KEY_PASSPHRASE = "passphrase"

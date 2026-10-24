@@ -13,6 +13,7 @@ import com.discordlite.server.plugins.configureSecurity
 import com.discordlite.server.plugins.configureSerialization
 import com.discordlite.server.plugins.configureStatusPages
 import com.discordlite.server.messaging.Gateway
+import com.discordlite.server.messaging.GroupService
 import com.discordlite.server.messaging.KeyService
 import com.discordlite.server.messaging.MessageService
 import com.discordlite.server.plugins.configureWebSockets
@@ -53,7 +54,8 @@ class AppDeps(val config: AppConfig, dataSource: DataSource, mailer: Mailer, pus
         ?.takeIf { File(it).isFile }
         ?.let { FcmPusher(it, pushTokens) }
         ?: NoPush.also { LoggerFactory.getLogger("Push").info("Push notifications are off (FIREBASE_SERVICE_ACCOUNT not set)") }
-    val messages = MessageService(db, keys, social, gateway, this.pusher, scope)
+    val groups = GroupService(db, social, gateway)
+    val messages = MessageService(db, keys, social, gateway, groups, this.pusher, scope)
 }
 
 fun Application.module() {

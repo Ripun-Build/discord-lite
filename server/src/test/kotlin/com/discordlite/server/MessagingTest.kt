@@ -323,37 +323,6 @@ class MessagingTest {
 
     // --- helpers ---
 
-    private suspend fun io.ktor.client.plugins.websocket.DefaultClientWebSocketSession.nextFrame(): GatewayFrame =
-        withTimeout(5_000) {
-            val frame = incoming.receive() as Frame.Text
-            json.decodeFromString(GatewayFrame.serializer(), frame.readText())
-        }
-
-    private suspend fun HttpClient.signalUser(app: TestApp, oneTime: Int = 5, kyber: Int = 3): Pair<TestUser, SignalTestClient> {
-        val user = newUser(app)
-        val signal = SignalTestClient(user.id)
-        val upload = put("/v1/keys") {
-            bearerAuth(user.token)
-            contentType(ContentType.Application.Json)
-            setBody(signal.keyUpload(oneTime, kyber))
-        }
-        assertEquals(HttpStatusCode.NoContent, upload.status, upload.bodyAsText())
-        return user to signal
-    }
-
-    private suspend fun HttpClient.befriend(a: TestUser, b: TestUser) {
-        postJson("/v1/friends/requests", mapOf("userId" to b.id), a.token)
-        post("/v1/friends/requests/${a.id}/accept") { bearerAuth(b.token) }
-    }
-
-    private suspend fun HttpClient.setPolicy(user: TestUser, policy: String) {
-        patch("/v1/me") {
-            bearerAuth(user.token)
-            contentType(ContentType.Application.Json)
-            setBody(mapOf("dmPolicy" to policy))
-        }
-    }
-
     private suspend fun HttpClient.sendEncrypted(
         from: TestUser,
         to: TestUser,
