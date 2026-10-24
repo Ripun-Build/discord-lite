@@ -30,6 +30,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Group
@@ -241,6 +243,8 @@ fun ServerSettingsScreen(
     onOpenChannels: () -> Unit,
     onOpenRoles: () -> Unit,
     onOpenMembers: () -> Unit,
+    onOpenInvites: () -> Unit,
+    onOpenBans: () -> Unit,
     onGone: () -> Unit,
 ) {
     val container = LocalAppContainer.current
@@ -328,6 +332,14 @@ fun ServerSettingsScreen(
                         Separator(60.dp)
                     }
                     NavRow(Icons.Rounded.Group, Color(0xFF34C759), "Members", "${s?.memberCount ?: 0}", onOpenMembers)
+                    if (s?.can(Permissions.CREATE_INVITES) == true || s?.can(Permissions.MANAGE_SERVER) == true) {
+                        Separator(60.dp)
+                        NavRow(Icons.Rounded.Link, Color(0xFFFF9F0A), "Invites", null, onOpenInvites)
+                    }
+                    if (s?.can(Permissions.BAN_MEMBERS) == true) {
+                        Separator(60.dp)
+                        NavRow(Icons.Rounded.Block, Color(0xFFFF453A), "Bans", null, onOpenBans)
+                    }
                 }
             }
         }
@@ -553,8 +565,10 @@ private val PermissionInfo = listOf(
     Triple(Permissions.MANAGE_SERVER, "Manage server", "Rename the server"),
     Triple(Permissions.MANAGE_CHANNELS, "Manage channels", "Create, rename and delete channels and categories"),
     Triple(Permissions.MANAGE_ROLES, "Manage roles", "Create roles and give them to people (only powers they have themselves)"),
+    Triple(Permissions.CREATE_INVITES, "Create invites", "Make invite links anyone can use to join"),
     Triple(Permissions.ADD_MEMBERS, "Add members", "Add their friends to the server"),
     Triple(Permissions.KICK_MEMBERS, "Kick members", "Remove people who have no management powers"),
+    Triple(Permissions.BAN_MEMBERS, "Ban members", "Remove people and stop them coming back by any link"),
     Triple(Permissions.MANAGE_MESSAGES, "Delete others' messages", "Remove anyone's messages in any channel"),
 )
 
@@ -697,7 +711,7 @@ fun ServerMembersScreen(serverId: String, onBack: () -> Unit) {
     fun canManage(target: ServerMemberResponse): Boolean {
         if (s == null || target.id == s.ownerId) return false
         if (s.ownerId == me?.id) return true
-        return powersOf(s, target) == 0L || target.id == me?.id
+        return powersOf(s, target) and Permissions.MANAGEMENT == 0L || target.id == me?.id
     }
 
     SettingsScaffold(
@@ -783,10 +797,151 @@ private fun MemberSheetContent(server: ServerResponse, member: ServerMemberRespo
                 CheckCircle(role.id in roles)
             }
         }
+        if (server.can(Permissions.BAN_MEMBERS) && manageable && !isMe) {
+            // Two taps: the first asks, the second bans (and the question goes away after a few seconds).
+            var confirming by remember(member.id) { mutableStateOf(false) }
+            LaunchedEffect(confirming) {
+                if (confirming) {
+                    kotlinx.coroutines.delay(4000)
+                    confirming = false
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            TextAction(
+                if (confirming) "Tap again to ban ${member.displayName}" else "Ban from server",
+                {
+                    if (confirming) action.run({ repo.ban(server.id, member.id) }, onDone) else {
+                        haptics.tick()
+                        confirming = true
+                    }
+                },
+                Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                color = colors.danger,
+            )
+            InfoFooter("Banned people can't come back by any link until someone unbans them.")
+        }
         if (member.id == server.ownerId) {
             InfoFooter("The owner can do everything, whatever their roles.")
         } else if (!manageable && !isMe) {
             InfoFooter("Only the owner can change roles for someone with management powers.")
+        }
+    }
+}
+
+// --- Invites ---
+
+/** Live invite links. Swipe one left to delete it (the link stops working at once). */
+@Composable
+fun ServerInvitesScreen(serverId: String, onBack: () -> Unit) {
+    val repo = LocalAppContainer.current.servers
+    val colors = DlTheme.colors
+    val action = rememberAction()
+    var invites by remember { mutableStateOf<List<com.discordlite.app.data.remote.InviteResponse>?>(null) }
+    suspend fun reload() {
+        invites = runCatching { repo.invites(serverId) }.getOrNull() ?: invites
+    }
+    LaunchedEffect(serverId) { reload() }
+
+    SettingsScaffold(title = "Invites", onBack = onBack) {
+        item { ErrorBanner(action.error, action.tick, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+        val list = invites
+        if (list != null && list.isEmpty()) {
+            item { InfoFooter("No live invite links. Make one with \"Invite\" under the server banner.") }
+        }
+        if (!list.isNullOrEmpty()) {
+            item { InfoHeader("Live links · ${list.size}") }
+            item {
+                SectionCard {
+                    Column {
+                        list.forEachIndexed { i, invite ->
+                            SwipeToReveal(enabled = true, action = "Delete", onAction = {
+                                action.run({
+                                    repo.deleteInvite(invite.code)
+                                    reload()
+                                })
+                            }) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(invite.code, style = DlTheme.type.body.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), color = colors.textPrimary)
+                                        Text("by ${invite.creatorName} · ${expiryLabel(invite.expiresAt)}", style = DlTheme.type.footnote, color = colors.textSecondary)
+                                    }
+                                    Text(
+                                        when {
+                                            invite.maxUses != null -> "${invite.uses}/${invite.maxUses} uses"
+                                            invite.uses == 1 -> "1 use"
+                                            else -> "${invite.uses} uses"
+                                        },
+                                        style = DlTheme.type.footnote,
+                                        color = colors.textTertiary,
+                                    )
+                                }
+                            }
+                            if (i < list.lastIndex) Separator()
+                        }
+                    }
+                }
+            }
+            item { InfoFooter("Swipe left to delete a link. People who already joined stay in the server.") }
+        }
+    }
+}
+
+/** "expires in 6 days", "expires in 3 hours", "never expires". */
+private fun expiryLabel(expiresAt: Long?): String {
+    if (expiresAt == null) return "never expires"
+    val minutes = ((expiresAt - System.currentTimeMillis()) / 60_000).coerceAtLeast(1)
+    return when {
+        minutes < 60 -> "expires in $minutes min"
+        minutes < 48 * 60 -> "expires in ${minutes / 60} h"
+        else -> "expires in ${minutes / (24 * 60)} days"
+    }
+}
+
+// --- Bans ---
+
+/** People banned from the server. Swipe left to unban (they can then join by link again). */
+@Composable
+fun ServerBansScreen(serverId: String, onBack: () -> Unit) {
+    val repo = LocalAppContainer.current.servers
+    val colors = DlTheme.colors
+    val action = rememberAction()
+    var bans by remember { mutableStateOf<List<com.discordlite.app.data.remote.BanResponse>?>(null) }
+    suspend fun reload() {
+        bans = runCatching { repo.bans(serverId) }.getOrNull() ?: bans
+    }
+    LaunchedEffect(serverId) { reload() }
+
+    SettingsScaffold(title = "Bans", onBack = onBack) {
+        item { ErrorBanner(action.error, action.tick, Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+        val list = bans
+        if (list != null && list.isEmpty()) item { InfoFooter("Nobody is banned. Ban someone from Members (tap them).") }
+        if (!list.isNullOrEmpty()) {
+            item { InfoHeader("Banned · ${list.size}") }
+            item {
+                SectionCard {
+                    Column {
+                        list.forEachIndexed { i, ban ->
+                            SwipeToReveal(enabled = true, action = "Unban", color = colors.accent, onAction = {
+                                action.run({
+                                    repo.unban(serverId, ban.userId)
+                                    reload()
+                                })
+                            }) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Avatar(ban.displayName, 40.dp)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(ban.displayName, style = DlTheme.type.body, color = colors.textPrimary)
+                                        Text("@${ban.username}", style = DlTheme.type.footnote, color = colors.textSecondary)
+                                    }
+                                }
+                            }
+                            if (i < list.lastIndex) Separator(68.dp)
+                        }
+                    }
+                }
+            }
+            item { InfoFooter("Swipe left to unban. They aren't added back — they can join again with a link.") }
         }
     }
 }

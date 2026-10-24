@@ -22,6 +22,7 @@ import com.discordlite.app.data.LocalAppSettings
 import com.discordlite.app.data.ThemeMode
 import com.discordlite.app.navigation.AppNavHost
 import com.discordlite.app.push.Notifier
+import com.discordlite.app.servers.InviteLinks
 import com.discordlite.app.security.AppLock
 import com.discordlite.app.security.LockScreen
 import com.discordlite.designsystem.theme.DlTheme
@@ -76,9 +77,13 @@ class MainActivity : FragmentActivity() {
         handleOpenChat(intent)
     }
 
-    /** A tapped notification asks to open that chat (after unlocking, if app lock is on). */
+    /**
+     * A tapped notification asks to open that chat; a tapped invite link asks to show its Join
+     * card (both after unlocking, if app lock is on).
+     */
     private fun handleOpenChat(intent: android.content.Intent?) {
         intent?.getStringExtra(Notifier.EXTRA_OPEN_CHAT)?.let { container.openChatRequests.value = it }
+        intent?.dataString?.let(InviteLinks::parse)?.let { container.openChatRequests.value = "invite:$it" }
     }
 
     override fun onStart() {

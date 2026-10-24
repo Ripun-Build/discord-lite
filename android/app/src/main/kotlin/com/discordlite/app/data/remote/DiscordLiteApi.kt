@@ -77,6 +77,15 @@ interface DiscordLiteApi {
     @POST("v1/channels/{channelId}/messages") suspend fun sendChannelMessage(@Path("channelId") channelId: String, @Body body: SendChannelMessageBody): ChannelMessageResponse
     @DELETE("v1/channels/{channelId}/messages/{messageId}") suspend fun deleteChannelMessage(@Path("channelId") channelId: String, @Path("messageId") messageId: Long): Response<Unit>
     @POST("v1/channels/{channelId}/read") suspend fun markChannelRead(@Path("channelId") channelId: String, @Body body: ReadBody): Response<Unit>
+    @POST("v1/servers/{serverId}/invites") suspend fun createInvite(@Path("serverId") serverId: String, @Body body: CreateInviteBody): InviteResponse
+    @GET("v1/servers/{serverId}/invites") suspend fun invites(@Path("serverId") serverId: String): List<InviteResponse>
+    @GET("v1/invites/{code}") suspend fun invitePreview(@Path("code") code: String): InvitePreviewResponse
+    @POST("v1/invites/{code}/join") suspend fun joinInvite(@Path("code") code: String): ServerResponse
+    @DELETE("v1/invites/{code}") suspend fun deleteInvite(@Path("code") code: String): Response<Unit>
+    @GET("v1/servers/{serverId}/bans") suspend fun bans(@Path("serverId") serverId: String): List<BanResponse>
+    @PUT("v1/servers/{serverId}/bans/{userId}") suspend fun ban(@Path("serverId") serverId: String, @Path("userId") userId: String): Response<Unit>
+    @DELETE("v1/servers/{serverId}/bans/{userId}") suspend fun unban(@Path("serverId") serverId: String, @Path("userId") userId: String): Response<Unit>
+
     @GET("v1/mentions") suspend fun mentions(): List<MentionResponse>
     @POST("v1/mentions/ack") suspend fun ackMentions(@Body body: MentionAckBody): Response<Unit>
 

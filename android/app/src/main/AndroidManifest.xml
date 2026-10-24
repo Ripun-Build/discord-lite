@@ -38,6 +38,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Invite links: discordlite://invite/<code> opens the Join card. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="discordlite" android:host="invite" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

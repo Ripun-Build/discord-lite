@@ -354,6 +354,7 @@ private fun ChannelMessageRow(
                 Spacer(Modifier.height(2.dp))
             }
             Text(withMentions(message.body, colors.accent), style = DlTheme.type.body, color = colors.textPrimary)
+            InviteCards(message.body, Modifier.padding(top = 6.dp))
             if (message.failed) {
                 Text("Not sent · Tap to retry", style = DlTheme.type.caption, color = colors.danger, modifier = Modifier.padding(top = 2.dp))
             }

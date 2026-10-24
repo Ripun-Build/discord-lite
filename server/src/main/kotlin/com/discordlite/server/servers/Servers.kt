@@ -27,7 +27,15 @@ object Permissions {
     const val KICK_MEMBERS = 8L
     const val MANAGE_MESSAGES = 16L
     const val ADD_MEMBERS = 32L
-    const val ALL = MANAGE_SERVER or MANAGE_CHANNELS or MANAGE_ROLES or KICK_MEMBERS or MANAGE_MESSAGES or ADD_MEMBERS
+    const val CREATE_INVITES = 64L
+    const val BAN_MEMBERS = 128L
+    const val ALL = MANAGE_SERVER or MANAGE_CHANNELS or MANAGE_ROLES or KICK_MEMBERS or MANAGE_MESSAGES or ADD_MEMBERS or CREATE_INVITES or BAN_MEMBERS
+
+    /** Powers over other people or the server. Making invites isn't one of them. */
+    const val MANAGEMENT = ALL and CREATE_INVITES.inv()
+
+    /** What @everyone gets in a new server. */
+    const val DEFAULT = CREATE_INVITES
 }
 
 @Serializable data class CategoryDto(val id: String, val name: String, val position: Int)
@@ -90,13 +98,39 @@ data class MentionDto(val message: ChannelMessageDto, val serverName: String, va
 @Serializable data class ReadRequest(val lastReadId: Long)
 @Serializable data class MentionAckRequest(val messageIds: List<Long>)
 
+/** An invite link. [maxUses] / [expiresAt] null = no limit. */
+@Serializable
+data class InviteDto(
+    val code: String,
+    val serverId: String,
+    val creatorId: String,
+    val creatorName: String,
+    val maxUses: Int? = null,
+    val uses: Int,
+    val expiresAt: Long? = null,
+    val createdAt: Long,
+)
+
+/** What anyone with the link sees before joining. */
+@Serializable
+data class InvitePreviewDto(val code: String, val serverId: String, val serverName: String, val memberCount: Int, val joined: Boolean, val expiresAt: Long? = null)
+
+/**
+ * [maxAgeSeconds] / [maxUses] null = never expires / no limit. Defaults: 7 days, unlimited.
+ * [neverExpires] says "no expiry" for clients that leave null fields out entirely.
+ */
+@Serializable data class CreateInviteRequest(val maxAgeSeconds: Long? = 7 * 24 * 3600L, val maxUses: Int? = null, val neverExpires: Boolean = false)
+
+@Serializable data class BanDto(val userId: String, val username: String, val displayName: String, val bannedAt: Long)
+
 /**
  * Discord-style servers: text channels in categories, members, and roles with permissions.
  *
  * Rules:
  * - Anything about a server you're not in answers "not found".
- * - People are added (Phase 4; invite links come in Phase 5) by a member with "Add members",
- *   and only from their own friends list.
+ * - People come in by invite link (anyone with "Create invites" can make one; on for everyone by
+ *   default) or are added from a member's friends list (needs "Add members").
+ * - Banned people can't come back, by link or otherwise, until unbanned.
  * - The owner can do everything and can't leave (they delete the server instead).
  * - Nobody can hand out powers they don't have. Kicking or changing the roles of someone who
  *   has management powers is for the owner only.
@@ -118,7 +152,10 @@ class ServerService(
         val dto = db.tx {
             invited.forEach { checkCanAdd(owner, it) }
             exec("INSERT INTO servers (id, owner_id, name) VALUES (?, ?, ?)", id, owner, name)
-            exec("INSERT INTO server_roles (id, server_id, name, is_default) VALUES (?, ?, 'everyone', true)", UUID.randomUUID(), id)
+            exec(
+                "INSERT INTO server_roles (id, server_id, name, permissions, is_default) VALUES (?, ?, 'everyone', ?, true)",
+                UUID.randomUUID(), id, Permissions.DEFAULT,
+            )
             (listOf(owner) + invited).forEach { exec("INSERT INTO server_members (server_id, user_id) VALUES (?, ?)", id, it) }
             when (request.template) {
                 "blank" -> addChannel(id, "general", null, 0)
@@ -203,7 +240,7 @@ class ServerService(
             val existing = memberIds(serverId).toSet()
             val invited = parseUsers(request.userIds) - existing
             if (existing.size + invited.size > MAX_MEMBERS) throw badRequest("server_full")
-            invited.forEach { checkCanAdd(user, it) }
+            invited.forEach { checkCanAdd(user, it, serverId) }
             invited.forEach { exec("INSERT INTO server_members (server_id, user_id) VALUES (?, ?)", serverId, it) }
             invited
         }
@@ -476,7 +513,135 @@ class ServerService(
         db.tx { exec("UPDATE message_mentions SET notified = true WHERE user_id = ? AND message_id = ANY(?)", user, createArrayOf("bigint", messageIds.toTypedArray())) }
     }
 
+    // --- Invites ---
+
+    suspend fun createInvite(user: UUID, serverId: UUID, request: CreateInviteRequest): InviteDto {
+        if (request.maxUses != null && request.maxUses !in 1..1000) throw badRequest("invalid_max_uses")
+        if (request.maxAgeSeconds != null && request.maxAgeSeconds !in 60..MAX_INVITE_AGE_SECONDS) throw badRequest("invalid_max_age")
+        return db.tx {
+            require(user, serverId, Permissions.CREATE_INVITES)
+            val expires = request.maxAgeSeconds?.takeUnless { request.neverExpires }?.let { java.sql.Timestamp(System.currentTimeMillis() + it * 1000) }
+            // Collisions are astronomically unlikely, but retry rather than fail.
+            val code = generateSequence { newInviteCode() }.first { queryOne("SELECT 1 FROM server_invites WHERE code = ?", it) { true } == null }
+            exec(
+                "INSERT INTO server_invites (code, server_id, creator_id, max_uses, expires_at) VALUES (?, ?, ?, ?, ?)",
+                code, serverId, user, request.maxUses, expires,
+            )
+            inviteRows("i.code = ?", code).single()
+        }
+    }
+
+    /** People who can manage the server see every link; everyone else sees the links they made. */
+    suspend fun invites(user: UUID, serverId: UUID): List<InviteDto> = db.tx {
+        requireMember(user, serverId)
+        if (permissionsOf(user, serverId) and Permissions.MANAGE_SERVER != 0L) inviteRows("i.server_id = ?", serverId)
+        else inviteRows("i.server_id = ? AND i.creator_id = ?", serverId, user)
+    }
+
+    suspend fun deleteInvite(user: UUID, code: String) = db.tx {
+        val (serverId, creator) = queryOne("SELECT server_id, creator_id FROM server_invites WHERE code = ?", code) {
+            it.uuid("server_id") to it.uuid("creator_id")
+        } ?: throw notFound("invite_invalid")
+        requireMember(user, serverId)
+        if (creator != user) require(user, serverId, Permissions.MANAGE_SERVER)
+        exec("DELETE FROM server_invites WHERE code = ?", code)
+    }
+
+    /** The card shown for a link. Expired, used-up and unknown links all look the same: invalid. */
+    suspend fun previewInvite(user: UUID, code: String): InvitePreviewDto = db.tx {
+        val (serverId, expires) = validInvite(code, lock = false)
+        val (name, count) = queryOne(
+            "SELECT s.name, (SELECT COUNT(*) FROM server_members m WHERE m.server_id = s.id) AS n FROM servers s WHERE s.id = ?", serverId,
+        ) { it.getString("name") to it.getInt("n") }!!
+        InvitePreviewDto(code, serverId.toString(), name, count, isMember(user, serverId), expires)
+    }
+
+    /** Joins through a link (using up one of its uses). Already a member: nothing changes. */
+    suspend fun joinInvite(user: UUID, code: String): ServerDto {
+        val (serverId, joined) = db.tx {
+            val (serverId, _) = validInvite(code, lock = true)
+            if (isMember(user, serverId)) return@tx serverId to false
+            if (isBanned(user, serverId)) throw forbidden("banned_from_server")
+            if (memberIds(serverId).size >= MAX_MEMBERS) throw badRequest("server_full")
+            exec("INSERT INTO server_members (server_id, user_id) VALUES (?, ?)", serverId, user)
+            exec("UPDATE server_invites SET uses = uses + 1 WHERE code = ?", code)
+            serverId to true
+        }
+        if (joined) broadcastChanged(serverId)
+        return get(user, serverId)
+    }
+
+    // --- Bans ---
+
+    /** Removes [target] and keeps them out until unbanned. Same rules as kicking. */
+    suspend fun ban(user: UUID, serverId: UUID, target: UUID) {
+        db.tx {
+            require(user, serverId, Permissions.BAN_MEMBERS)
+            if (target == user) throw badRequest("cannot_ban_self")
+            if (queryOne("SELECT 1 FROM users WHERE id = ?", target) { true } == null) throw notFound("user_not_found")
+            val owner = ownerOf(serverId)
+            if (isMember(target, serverId)) requireAbove(user, owner, serverId, target) else if (target == owner) throw forbidden("target_is_owner")
+            exec("INSERT INTO server_bans (server_id, user_id, banned_by) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", serverId, target, user)
+            exec("DELETE FROM server_members WHERE server_id = ? AND user_id = ?", serverId, target)
+        }
+        gateway.sendTo(target, GatewayFrame("server_removed", serverId = serverId.toString()))
+        broadcastChanged(serverId)
+    }
+
+    suspend fun unban(user: UUID, serverId: UUID, target: UUID) = db.tx {
+        require(user, serverId, Permissions.BAN_MEMBERS)
+        if (exec("DELETE FROM server_bans WHERE server_id = ? AND user_id = ?", serverId, target) == 0) throw notFound("not_banned")
+    }
+
+    suspend fun bans(user: UUID, serverId: UUID): List<BanDto> = db.tx {
+        require(user, serverId, Permissions.BAN_MEMBERS)
+        query(
+            """
+            SELECT u.id, u.username, u.display_name, b.created_at FROM server_bans b JOIN users u ON u.id = b.user_id
+            WHERE b.server_id = ? ORDER BY b.created_at DESC
+            """.trimIndent(),
+            serverId,
+        ) { BanDto(it.uuid("id").toString(), it.getString("username"), it.getString("display_name"), it.getTimestamp("created_at").time) }
+    }
+
     // --- Helpers ---
+
+    /** The invite's server and expiry if it still works; otherwise "invalid". */
+    private fun Connection.validInvite(code: String, lock: Boolean): Pair<UUID, Long?> {
+        if (!INVITE_CODE.matches(code)) throw notFound("invite_invalid")
+        return queryOne(
+            "SELECT server_id, expires_at FROM server_invites WHERE code = ? AND (expires_at IS NULL OR expires_at > now()) " +
+                "AND (max_uses IS NULL OR uses < max_uses)" + if (lock) " FOR UPDATE" else "",
+            code,
+        ) { it.uuid("server_id") to it.getTimestamp("expires_at")?.time } ?: throw notFound("invite_invalid")
+    }
+
+    private fun Connection.inviteRows(where: String, vararg params: Any?): List<InviteDto> =
+        query(
+            """
+            SELECT i.code, i.server_id, i.creator_id, u.display_name, i.max_uses, i.uses, i.expires_at, i.created_at
+            FROM server_invites i JOIN users u ON u.id = i.creator_id
+            WHERE $where AND (i.expires_at IS NULL OR i.expires_at > now()) AND (i.max_uses IS NULL OR i.uses < i.max_uses)
+            ORDER BY i.created_at DESC
+            """.trimIndent(),
+            *params,
+        ) {
+            InviteDto(
+                code = it.getString("code"),
+                serverId = it.uuid("server_id").toString(),
+                creatorId = it.uuid("creator_id").toString(),
+                creatorName = it.getString("display_name"),
+                maxUses = it.getObject("max_uses") as Int?,
+                uses = it.getInt("uses"),
+                expiresAt = it.getTimestamp("expires_at")?.time,
+                createdAt = it.getTimestamp("created_at").time,
+            )
+        }
+
+    private fun Connection.isBanned(user: UUID, serverId: UUID): Boolean =
+        queryOne("SELECT 1 FROM server_bans WHERE server_id = ? AND user_id = ?", serverId, user) { true } == true
+
+    private fun newInviteCode(): String = (1..8).map { INVITE_ALPHABET[random.nextInt(INVITE_ALPHABET.length)] }.joinToString("")
 
     private fun Connection.serverDto(user: UUID, serverId: UUID): ServerDto {
         val (name, owner, createdAt) = queryOne("SELECT name, owner_id, created_at FROM servers WHERE id = ?", serverId) {
@@ -540,7 +705,7 @@ class ServerService(
     /** People with management powers can only be kicked or re-roled by the owner. */
     private fun Connection.requireAbove(user: UUID, owner: UUID, serverId: UUID, target: UUID) {
         if (target == owner) throw forbidden("target_is_owner")
-        if (user != owner && permissionsOf(target, serverId) != 0L) throw forbidden("target_has_powers")
+        if (user != owner && permissionsOf(target, serverId) and Permissions.MANAGEMENT != 0L) throw forbidden("target_has_powers")
     }
 
     private fun requireGrantable(mine: Long, permissions: Long) {
@@ -575,7 +740,8 @@ class ServerService(
         } ?: throw notFound("role_not_found")
 
     /** Adding someone: they must be your friend, and neither of you has blocked the other. */
-    private fun Connection.checkCanAdd(adder: UUID, target: UUID) {
+    /** For an existing [serverId], people banned from it can't be added either. */
+    private fun Connection.checkCanAdd(adder: UUID, target: UUID, serverId: UUID? = null) {
         val visible = queryOne("SELECT 1 FROM users WHERE id = ? AND email_verified", target) { true } == true &&
             queryOne("SELECT 1 FROM blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)", adder, target, target, adder) { true } == null
         if (!visible) throw notFound("user_not_found")
@@ -584,6 +750,7 @@ class ServerService(
             adder, target, target, adder,
         ) { true } == true
         if (!friends) throw forbidden("not_friends")
+        if (serverId != null && isBanned(target, serverId)) throw forbidden("banned_from_server")
     }
 
     private fun Connection.addCategory(serverId: UUID, name: String, position: Int): UUID =
@@ -659,6 +826,10 @@ class ServerService(
     companion object {
         const val MAX_MEMBERS = 500
         const val MAX_MESSAGE = 4000
+        const val MAX_INVITE_AGE_SECONDS = 30L * 24 * 3600
+        private const val INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+        private val INVITE_CODE = Regex("^[A-Za-z0-9]{8}$")
+        private val random = java.security.SecureRandom()
         private val MENTION = Regex("(?<![\\w@])@([a-zA-Z0-9._]{3,20})")
     }
 }

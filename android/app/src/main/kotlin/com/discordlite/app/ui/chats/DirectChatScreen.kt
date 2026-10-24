@@ -59,6 +59,7 @@ import com.discordlite.app.chat.ChatMessage
 import com.discordlite.app.chat.GatewayClient
 import com.discordlite.app.chat.MessageStatus
 import com.discordlite.app.data.LocalAppContainer
+import com.discordlite.app.ui.servers.InviteCards
 import com.discordlite.designsystem.component.Avatar
 import com.discordlite.designsystem.component.DetailTopBar
 import com.discordlite.designsystem.component.GlassScaffold
@@ -303,6 +304,7 @@ private fun BubbleBody(
         ) {
             Text(message.body, style = DlTheme.type.body, color = if (mine) Color.White else colors.textPrimary)
         }
+        InviteCards(message.body, Modifier.padding(top = 6.dp))
         if (lastOfGroup || showStatus) {
             val time = timeLabel(message.sentAt)
             val (label, tint) = when {

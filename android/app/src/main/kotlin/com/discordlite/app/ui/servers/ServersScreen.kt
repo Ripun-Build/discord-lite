@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material3.Icon
@@ -106,6 +107,7 @@ fun ServersScreen(
     onOpenSettings: (serverId: String) -> Unit,
     onCreateServer: () -> Unit,
     onAddMembers: (serverId: String) -> Unit,
+    onInvite: (serverId: String) -> Unit,
 ) {
     val colors = DlTheme.colors
     val repo = LocalAppContainer.current.servers
@@ -148,6 +150,7 @@ fun ServersScreen(
                         onOpenChannel = { onOpenChannel(s.id, it) },
                         onOpenSettings = { onOpenSettings(s.id) },
                         onAddMembers = { onAddMembers(s.id) },
+                        onInvite = { onInvite(s.id) },
                     )
                 }
             }
@@ -247,10 +250,10 @@ private fun RailIcon(
 
 
 @Composable
-private fun ChannelPanel(server: ServerResponse, onOpenChannel: (String) -> Unit, onOpenSettings: () -> Unit, onAddMembers: () -> Unit) {
+private fun ChannelPanel(server: ServerResponse, onOpenChannel: (String) -> Unit, onOpenSettings: () -> Unit, onAddMembers: () -> Unit, onInvite: () -> Unit) {
     val loose = server.channels.filter { it.categoryId == null }
     LazyColumn(contentPadding = PaddingValues(bottom = tabBarClearance())) {
-        item(key = "header") { ServerHeader(server, onOpenSettings, onAddMembers) }
+        item(key = "header") { ServerHeader(server, onOpenSettings, onAddMembers, onInvite) }
         if (loose.isNotEmpty()) {
             item(key = "loose") { Column { loose.forEach { channel -> ChannelRow(channel) { onOpenChannel(channel.id) } } } }
         }
@@ -270,9 +273,9 @@ private fun ChannelPanel(server: ServerResponse, onOpenChannel: (String) -> Unit
     }
 }
 
-/** Banner (tap for Server Settings), member count, and "Add friends" for people allowed to. */
+/** Banner (tap for Server Settings), member count, then "Invite" and "Add friends" for people allowed to. */
 @Composable
-private fun ServerHeader(server: ServerResponse, onOpenSettings: () -> Unit, onAddMembers: () -> Unit) {
+private fun ServerHeader(server: ServerResponse, onOpenSettings: () -> Unit, onAddMembers: () -> Unit, onInvite: () -> Unit) {
     val colors = DlTheme.colors
     val palette = gradientFor(server.name)
     Column {
@@ -294,24 +297,33 @@ private fun ServerHeader(server: ServerResponse, onOpenSettings: () -> Unit, onA
             Spacer(Modifier.width(5.dp))
             Text(if (server.memberCount == 1) "1 member" else "${"%,d".format(server.memberCount)} members", style = DlTheme.type.footnote, color = colors.textSecondary)
         }
-        if (server.can(Permissions.ADD_MEMBERS)) {
-            Row(
-                Modifier
-                    .padding(horizontal = 14.dp)
-                    .fillMaxWidth()
-                    .height(40.dp)
-                    .pressable(pressedScale = 0.97f, onClick = onAddMembers)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.accent.copy(alpha = if (colors.isDark) 0.2f else 0.12f)),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Icon(Icons.Rounded.PersonAdd, null, tint = colors.accent, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Add friends", style = DlTheme.type.headline, color = colors.accent)
+        val canInvite = server.can(Permissions.CREATE_INVITES)
+        val canAdd = server.can(Permissions.ADD_MEMBERS)
+        if (canInvite || canAdd) {
+            Row(Modifier.padding(horizontal = 14.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (canInvite) HeaderButton(Icons.Rounded.Link, "Invite", onInvite, Modifier.weight(1f))
+                if (canAdd) HeaderButton(Icons.Rounded.PersonAdd, "Add friends", onAddMembers, Modifier.weight(1f))
             }
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun HeaderButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = DlTheme.colors
+    Row(
+        modifier
+            .height(40.dp)
+            .pressable(pressedScale = 0.97f, onClick = onClick)
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.accent.copy(alpha = if (colors.isDark) 0.2f else 0.12f)),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, null, tint = colors.accent, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label, style = DlTheme.type.headline, color = colors.accent)
     }
 }
 
@@ -541,98 +553,8 @@ internal fun serverError(error: Throwable): String = when ((error as? ApiError)?
     "invalid_category_name" -> "Give the category a name (up to 32 characters)."
     "server_full" -> "This server is full."
     "server_not_found", "channel_not_found" -> "This server or channel no longer exists."
+    "invite_invalid" -> "This invite has expired, been used up, or deleted."
+    "banned_from_server" -> "You're banned from this server."
+    "cannot_ban_self" -> "You can't ban yourself."
     else -> "Something went wrong. Try again."
-}
-
-
-private val ExpiryOptions = listOf("30 min", "1 hour", "1 day", "7 days", "Never")
-private val UseOptions = listOf("No limit", "1", "5", "10", "25")
-
-/** Sheet content: create and share a Discord-style invite link, with a live preview of its card. */
-@Composable
-fun InviteSheetContent(serverId: String) {
-    val colors = DlTheme.colors
-    val context = LocalContext.current
-    val haptics = rememberHaptics()
-    val server = SampleData.server(serverId)
-    var expiry by rememberSaveable { mutableIntStateOf(3) }
-    var uses by rememberSaveable { mutableIntStateOf(0) }
-    var copied by remember { mutableStateOf(false) }
-    val link = "https://discord-lite.app/invite/${server.inviteCode}"
-
-    LaunchedEffect(copied) {
-        if (copied) {
-            delay(1600)
-            copied = false
-        }
-    }
-
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-        Text("Invite friends to ${server.name}", style = DlTheme.type.title3, color = colors.textPrimary)
-        Spacer(Modifier.height(4.dp))
-        Text("Anyone with this link can join the server.", style = DlTheme.type.subheadline, color = colors.textSecondary)
-        Spacer(Modifier.height(16.dp))
-
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (colors.isDark) colors.surfaceRaised else colors.bubbleOther)
-                .padding(start = 14.dp, end = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(link.removePrefix("https://"), style = DlTheme.type.callout, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Box(
-                Modifier
-                    .height(38.dp)
-                    .pressable(pressedScale = 0.94f) {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Invite link", link))
-                        haptics.confirm()
-                        copied = true
-                    }
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (copied) colors.success else colors.accent)
-                    .padding(horizontal = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                AnimatedContent(
-                    targetState = copied,
-                    transitionSpec = { (scaleIn(DlMotion.pop(), initialScale = 0.6f) + fadeIn(DlMotion.snappy())) togetherWith fadeOut(DlMotion.snappy()) },
-                    label = "copy",
-                ) { done ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (done) Icons.Rounded.Check else Icons.Rounded.ContentCopy, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (done) "Copied" else "Copy", style = DlTheme.type.footnote.copy(fontWeight = FontWeight.SemiBold), color = Color.White)
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(18.dp))
-        Text("EXPIRE AFTER", style = DlTheme.type.micro, color = colors.textSecondary)
-        Spacer(Modifier.height(8.dp))
-        SegmentedControl(ExpiryOptions, expiry, { expiry = it })
-        Spacer(Modifier.height(14.dp))
-        Text("MAX NUMBER OF USES", style = DlTheme.type.micro, color = colors.textSecondary)
-        Spacer(Modifier.height(8.dp))
-        SegmentedControl(UseOptions, uses, { uses = it })
-
-        Spacer(Modifier.height(18.dp))
-        Text("PREVIEW", style = DlTheme.type.micro, color = colors.textSecondary)
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            InviteCard(server.invite, joined = true, onJoin = {})
-        }
-        Spacer(Modifier.height(18.dp))
-        PrimaryButton("Share invite link", onClick = {
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, "Join ${server.name} on discord-lite: $link")
-            }
-            context.startActivity(Intent.createChooser(send, "Share invite"))
-        })
-    }
 }

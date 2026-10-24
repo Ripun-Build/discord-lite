@@ -84,11 +84,14 @@ fun InviteCard(
                     Text(invite.serverName, style = DlTheme.type.headline, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(3.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Box(Modifier.size(8.dp).background(colors.online, CircleShape))
-                        Text("${"%,d".format(invite.online)} Online", style = DlTheme.type.footnote, color = colors.textSecondary)
-                        Spacer(Modifier.width(3.dp))
+                        // A negative online count means "not known" (no presence yet): show members only.
+                        if (invite.online >= 0) {
+                            Box(Modifier.size(8.dp).background(colors.online, CircleShape))
+                            Text("${"%,d".format(invite.online)} Online", style = DlTheme.type.footnote, color = colors.textSecondary)
+                            Spacer(Modifier.width(3.dp))
+                        }
                         Box(Modifier.size(8.dp).background(colors.textTertiary, CircleShape))
-                        Text("${"%,d".format(invite.members)} Members", style = DlTheme.type.footnote, color = colors.textSecondary, maxLines = 1)
+                        Text(if (invite.members == 1) "1 Member" else "${"%,d".format(invite.members)} Members", style = DlTheme.type.footnote, color = colors.textSecondary, maxLines = 1)
                     }
                 }
             }
