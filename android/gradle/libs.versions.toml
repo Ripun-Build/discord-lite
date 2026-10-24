@@ -16,6 +16,8 @@ libsignal = "0.105.0"
 sqlcipher = "4.19.1"
 androidxSqlite = "2.7.1"
 biometric = "1.1.0"
+firebaseBom = "35.0.1"
+googleServices = "4.5.0"
 desugarJdkLibs = "2.1.5"
 
 [libraries]
@@ -44,11 +46,14 @@ tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "
 libsignal-android = { module = "org.signal:libsignal-android", version.ref = "libsignal" }
 sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "androidxSqlite" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
 
 [plugins]
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

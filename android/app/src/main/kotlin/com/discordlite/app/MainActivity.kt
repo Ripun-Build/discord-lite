@@ -21,6 +21,7 @@ import com.discordlite.app.data.LocalAppContainer
 import com.discordlite.app.data.LocalAppSettings
 import com.discordlite.app.data.ThemeMode
 import com.discordlite.app.navigation.AppNavHost
+import com.discordlite.app.push.Notifier
 import com.discordlite.app.security.AppLock
 import com.discordlite.app.security.LockScreen
 import com.discordlite.designsystem.theme.DlTheme
@@ -39,6 +40,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         val settings = container.settings
         locked = settings.appLock && savedInstanceState == null
+        handleOpenChat(intent)
 
         setContent {
             val dark = when (settings.themeMode) {
@@ -67,6 +69,16 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleOpenChat(intent)
+    }
+
+    /** A tapped notification asks to open that chat (after unlocking, if app lock is on). */
+    private fun handleOpenChat(intent: android.content.Intent?) {
+        intent?.getStringExtra(Notifier.EXTRA_OPEN_CHAT)?.let { container.openChatRequests.value = it }
     }
 
     override fun onStart() {

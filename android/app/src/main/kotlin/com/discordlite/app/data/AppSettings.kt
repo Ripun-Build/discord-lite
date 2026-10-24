@@ -36,6 +36,15 @@ class AppSettings(context: Context) {
     var blockScreenshots by mutableStateOf(prefs.getBoolean(KEY_BLOCK_SCREENSHOTS, true))
         private set
 
+    /** Whether we've already asked for notification permission (ask once, at a meaningful moment). */
+    var askedNotifications by mutableStateOf(prefs.getBoolean(KEY_ASKED_NOTIFICATIONS, false))
+        private set
+
+    fun markAskedNotifications() {
+        askedNotifications = true
+        prefs.edit { putBoolean(KEY_ASKED_NOTIFICATIONS, true) }
+    }
+
     fun updateThemeMode(mode: ThemeMode) {
         themeMode = mode
         prefs.edit { putInt(KEY_THEME, mode.ordinal) }
@@ -73,6 +82,7 @@ class AppSettings(context: Context) {
         const val KEY_APP_LOCK = "app_lock"
         const val KEY_HIDE_NOTIFICATIONS = "hide_notification_content"
         const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"
+        const val KEY_ASKED_NOTIFICATIONS = "asked_notifications"
     }
 }
 

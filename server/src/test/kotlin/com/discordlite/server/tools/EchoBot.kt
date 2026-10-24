@@ -49,6 +49,9 @@ fun main() = runBlocking {
     val email = System.getenv("BOT_EMAIL") ?: "echobot@discord-lite.local"
     val username = System.getenv("BOT_USERNAME") ?: "echobot"
     val password = System.getenv("BOT_PASSWORD") ?: "echobot-dev-password"
+    // How long it "types" before answering. Set e.g. BOT_REPLY_DELAY_MS=8000 to test push: send,
+    // close the app, and the reply arrives while it's in the background.
+    val replyDelay = System.getenv("BOT_REPLY_DELAY_MS")?.toLongOrNull() ?: 1_500L
     val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
     val http = HttpClient(CIO) {
@@ -137,7 +140,7 @@ fun main() = runBlocking {
             sendStored(control("receipt", "delivered", listOf(messageId)))
             val typing = encryptedTo(control("typing", "on"))
             send(Frame.Text(json.encodeToString(GatewayFrame.serializer(), GatewayFrame("ephemeral", com.discordlite.server.messaging.Envelope(0, "", typing.type, b64(typing.serialize()), 0), to = envelope.senderId))))
-            delay(1_500)
+            delay(replyDelay)
             sendStored(control("receipt", "read", listOf(messageId)))
 
             val reply = buildJsonObject {

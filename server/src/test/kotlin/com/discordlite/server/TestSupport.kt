@@ -64,9 +64,17 @@ class CapturingMailer : Mailer {
 
 class TestApp(val mailer: CapturingMailer, val deps: AppDeps)
 
-fun ApplicationTestBuilder.startApp(): TestApp {
+/** Records who would have been woken by a push. */
+class CapturingPusher : com.discordlite.server.push.Pusher {
+    val woken = CopyOnWriteArrayList<java.util.UUID>()
+    override suspend fun wake(user: java.util.UUID) {
+        woken += user
+    }
+}
+
+fun ApplicationTestBuilder.startApp(pusher: CapturingPusher = CapturingPusher()): TestApp {
     val mailer = CapturingMailer()
-    val deps = AppDeps(TestDb.config, TestDb.dataSource, mailer)
+    val deps = AppDeps(TestDb.config, TestDb.dataSource, mailer, pusher)
     application { configure(deps) }
     return TestApp(mailer, deps)
 }

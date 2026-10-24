@@ -86,6 +86,14 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         }
     }
 
+    // A tapped notification opens its chat.
+    val openChat by container.openChatRequests.collectAsStateWithLifecycle()
+    LaunchedEffect(openChat) {
+        val peer = openChat ?: return@LaunchedEffect
+        if (container.account.isSignedIn) navController.navigate(ConversationRoute(peer)) { launchSingleTop = true }
+        container.openChatRequests.value = null
+    }
+
     NavHost(
         navController = navController,
         startDestination = start,

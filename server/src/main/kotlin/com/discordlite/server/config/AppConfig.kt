@@ -17,6 +17,8 @@ data class AppConfig(
     val accessTokenTtl: Duration = 15.minutes,
     val refreshTokenTtl: Duration = 30.days,
     val authRequestsPerMinute: Int = 20,
+    /** Path to a Firebase service-account key. Null = push notifications are off. */
+    val firebaseServiceAccount: String? = null,
 ) {
     companion object {
         /** Reads the same variables as docker-compose, so `.env` is the single source of secrets. */
@@ -36,6 +38,7 @@ data class AppConfig(
                 smtpHost = env["SMTP_HOST"] ?: "localhost",
                 smtpPort = env["SMTP_PORT"]?.toInt() ?: 1025,
                 mailFrom = env["MAIL_FROM"] ?: "discord-lite <no-reply@discord-lite.local>",
+                firebaseServiceAccount = env["FIREBASE_SERVICE_ACCOUNT"]?.takeIf { it.isNotBlank() },
             )
         }
     }

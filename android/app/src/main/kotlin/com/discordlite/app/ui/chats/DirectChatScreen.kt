@@ -1,5 +1,9 @@
 package com.discordlite.app.ui.chats
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -48,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.discordlite.app.chat.ChatMessage
 import com.discordlite.app.chat.GatewayClient
@@ -87,17 +92,31 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
     // Plain set (not observable state): it only remembers which bubbles already played their entrance.
     val justSent = remember { HashSet<String>() }
     val listState = rememberLazyListState()
+    // Ask for notifications the first time you send a message — that's when replies matter.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     // Mark as read while open; incoming messages here don't count as unread.
-    DisposableEffect(peerId) {
+    // "Viewing this chat" only while the app is actually on screen: leaving the app (or the chat)
+    // stops read receipts and lets notifications for this chat show again.
+    LifecycleResumeEffect(peerId) {
         scope.launch { chat.open(peerId) }
-        onDispose { chat.close(peerId) }
+        onPauseOrDispose { chat.close(peerId) }
     }
 
     val display = messages.asReversed()
     val latestMine = messages.lastOrNull { it.fromMe }?.clientId
+    // The list first draws empty (just the header); when history loads, jump to the newest message
+    // instead of keeping the header in view. After that, follow new messages only if already at the bottom.
+    var initialScrollDone by remember(peerId) { mutableStateOf(false) }
     LaunchedEffect(messages.size, peerTyping) {
-        if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
+        if (!initialScrollDone) {
+            if (messages.isNotEmpty()) {
+                listState.scrollToItem(0)
+                initialScrollDone = true
+            }
+        } else if (listState.firstVisibleItemIndex <= 1) {
+            listState.animateScrollToItem(0)
+        }
     }
 
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -142,6 +161,10 @@ fun DirectChatScreen(peerId: String, onBack: () -> Unit) {
                     val text = draft
                     draft = ""
                     haptics.tick()
+                    if (Build.VERSION.SDK_INT >= 33 && !container.notifier.canNotify() && !container.settings.askedNotifications) {
+                        container.settings.markAskedNotifications()
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
                     scope.launch { chat.send(peerId, text) }
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),

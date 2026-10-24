@@ -1,6 +1,13 @@
 package com.discordlite.app.data
 
 import android.content.Context
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+import com.google.firebase.messaging.FirebaseMessaging
+import com.discordlite.app.data.remote.PushTokenBody
+import com.discordlite.app.data.remote.AckBody
+import com.discordlite.app.push.Notifier
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.Mutex
@@ -142,8 +149,12 @@ class AppContainer(context: Context) {
     private val signalStore: SignalStore = SignalStore(local) { address -> chat.onIdentityChanged(address.substringBefore('.')) }
     private val keys = KeyManager(api, signalStore, local)
     val chat: ChatRepository = ChatRepository(api, signalStore, local, social, settings, scope) { account.me.value?.id ?: local.db.metaGet(OWNER) }
-    val gateway = GatewayClient(clients.http, BuildConfig.API_BASE_URL, scope, chat::receive, chat::retryPending)
+    val gateway = GatewayClient(clients.http, BuildConfig.API_BASE_URL, scope, { chat.receive(it) }, chat::retryPending)
         .also { gateway -> chat.sendEphemeral = gateway::sendEphemeral }
+    val notifier = Notifier(context, settings).also { n -> chat.onChatOpened = n::clear }
+
+    /** Set when a notification is tapped; the navigation opens that chat. */
+    val openChatRequests = MutableStateFlow<String?>(null)
 
     private val bootLock = Mutex()
 
@@ -161,11 +172,40 @@ class AppContainer(context: Context) {
         }
         runCatching { keys.ensurePublished() }
         gateway.start()
+        runCatching { registerPushToken(currentPushToken()) }
+    }
+
+    /** Tells our server where to send wake-up pushes for this phone. */
+    suspend fun registerPushToken(token: String) {
+        if (!account.isSignedIn) return
+        apiCallUnit { api.savePushToken(PushTokenBody(token)) }
+    }
+
+    /**
+     * Woken by a push: fetch the waiting envelopes, decrypt and store them, acknowledge them, and
+     * show notifications. Skipped while the live connection is open (it already delivered them).
+     */
+    suspend fun catchUpFromPush() {
+        if (!account.isSignedIn || gateway.state.value == GatewayClient.State.Online) return
+        val envelopes = runCatching { apiCall { api.pendingMessages() } }.getOrNull() ?: return
+        val incoming = envelopes.mapNotNull { envelope -> chat.receive(envelope) }
+        if (envelopes.isNotEmpty()) runCatching { apiCallUnit { api.ack(AckBody(envelopes.map { it.id })) } }
+        notifier.show(incoming)
+    }
+
+    private suspend fun currentPushToken(): String = suspendCancellableCoroutine { cont ->
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { cont.resume(it) }
+            .addOnFailureListener { cont.resumeWithException(it) }
     }
 
     /** Signing out removes this account's keys and messages from the phone. */
     suspend fun endSession() {
         gateway.stop()
+        // Stop pushes to this phone for the account that's leaving.
+        runCatching { apiCallUnit { api.deletePushToken() } }
+        runCatching { FirebaseMessaging.getInstance().deleteToken() }
+        notifier.clearAll()
         account.signOut()
         social.clear()
         withContext(Dispatchers.IO) { local.wipe() }
