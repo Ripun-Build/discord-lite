@@ -20,6 +20,11 @@ data class AppConfig(
     val inviteLookupsPerMinute: Int = 30,
     /** Path to a Firebase service-account key. Null = push notifications are off. */
     val firebaseServiceAccount: String? = null,
+    /** S3-compatible storage for photos (SeaweedFS locally). Null keys = keep files in memory. */
+    val s3Endpoint: String = "http://127.0.0.1:8333",
+    val s3Bucket: String = "discordlite-media",
+    val s3AccessKey: String? = null,
+    val s3SecretKey: String? = null,
 ) {
     companion object {
         /** Reads the same variables as docker-compose, so `.env` is the single source of secrets. */
@@ -40,6 +45,10 @@ data class AppConfig(
                 smtpPort = env["SMTP_PORT"]?.toInt() ?: 1025,
                 mailFrom = env["MAIL_FROM"] ?: "discord-lite <no-reply@discord-lite.local>",
                 firebaseServiceAccount = env["FIREBASE_SERVICE_ACCOUNT"]?.takeIf { it.isNotBlank() },
+                s3Endpoint = env["S3_ENDPOINT"] ?: "http://127.0.0.1:8333",
+                s3Bucket = env["S3_BUCKET"] ?: "discordlite-media",
+                s3AccessKey = env["S3_ACCESS_KEY"]?.takeIf { it.isNotBlank() && it != "change-me" },
+                s3SecretKey = env["S3_SECRET_KEY"]?.takeIf { it.isNotBlank() && it != "change-me-too" },
             )
         }
     }

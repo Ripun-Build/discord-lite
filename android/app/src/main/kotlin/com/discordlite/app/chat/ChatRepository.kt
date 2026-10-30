@@ -63,6 +63,8 @@ data class ChatMessage(
     val sentAt: Long,
     val status: MessageStatus,
     val senderId: String? = null,
+    /** Set when this DM replies to a story: what that story said (or "Photo"). */
+    val storyQuote: String? = null,
 )
 
 /** A newly received message, for notifications. */
@@ -88,6 +90,7 @@ data class Conversation(
  * - `receipt`: [state] "delivered" or "read" for the message [ids].
  * - `typing`: [state] "on" or "off". Sent as an ephemeral event, never stored.
  * - `sender_key`: a group member's Signal sender key ([key]), sent 1:1 to each member.
+ * A `text` with [story] is a reply to the recipient's story ([story] = its caption, or "Photo").
  */
 @Serializable
 data class ChatPayload(
@@ -99,6 +102,7 @@ data class ChatPayload(
     val state: String? = null,
     val ids: List<String>? = null,
     val key: String? = null,
+    val story: String? = null,
 )
 
 /**
@@ -163,6 +167,7 @@ class ChatRepository(
                 it.long("local_id"), it.str("peer_id"), it.str("client_id"), it.int("from_me") == 1, it.str("body"), it.long("sent_at"),
                 MessageStatus.valueOf(it.str("status")),
                 senderId = it.getColumnIndexOrThrow("sender_id").let { col -> if (it.isNull(col)) null else it.getString(col) },
+                storyQuote = it.getColumnIndexOrThrow("story_quote").let { col -> if (it.isNull(col)) null else it.getString(col) },
             )
         }
     }.flowOn(Dispatchers.IO)
@@ -226,7 +231,8 @@ class ChatRepository(
         if (openPeer == peerId) openPeer = null
     }
 
-    suspend fun send(peerId: String, text: String) {
+    /** [storyQuote]: this message replies to their story (its caption, or "Photo"). */
+    suspend fun send(peerId: String, text: String, storyQuote: String? = null) {
         val body = text.trim()
         if (body.isEmpty()) return
         val clientId = UUID.randomUUID().toString()
@@ -234,38 +240,38 @@ class ChatRepository(
         withContext(Dispatchers.IO) {
             ensureConversation(peerId)
             db.exec(
-                "INSERT INTO messages (peer_id, client_id, from_me, body, sent_at, status) VALUES (?, ?, 1, ?, ?, ?)",
-                peerId, clientId, body, now, MessageStatus.SENDING.name,
+                "INSERT INTO messages (peer_id, client_id, from_me, body, sent_at, status, story_quote) VALUES (?, ?, 1, ?, ?, ?, ?)",
+                peerId, clientId, body, now, MessageStatus.SENDING.name, storyQuote,
             )
             db.exec("UPDATE conversations SET last_message = ?, last_at = ? WHERE peer_id = ?", body, now, peerId)
         }
         bump()
         lastTypingSent[peerId] = false to now // sending a message ends "typing" on their side
-        deliver(peerId, clientId, body, now)
+        deliver(peerId, clientId, body, now, storyQuote)
     }
 
     /** Tap-to-retry on a failed message. */
     suspend fun retry(message: ChatMessage) {
         setStatus(message.peerId, message.clientId, MessageStatus.SENDING)
-        deliver(message.peerId, message.clientId, message.body, message.sentAt)
+        deliver(message.peerId, message.clientId, message.body, message.sentAt, message.storyQuote)
     }
 
     /** Sends anything still waiting from a previous offline period. Called when the gateway is ready. */
     suspend fun retryPending() {
         val pending = withContext(Dispatchers.IO) {
             db.queryList(
-                "SELECT peer_id, client_id, body, sent_at FROM messages WHERE from_me = 1 AND status = ? AND peer_id NOT IN (SELECT id FROM groups) ORDER BY sent_at",
+                "SELECT peer_id, client_id, body, sent_at, story_quote FROM messages WHERE from_me = 1 AND status = ? AND peer_id NOT IN (SELECT id FROM groups) ORDER BY sent_at",
                 MessageStatus.SENDING.name,
             ) {
-                arrayOf(it.str("peer_id"), it.str("client_id"), it.str("body"), it.long("sent_at").toString())
+                listOf(it.str("peer_id"), it.str("client_id"), it.str("body"), it.long("sent_at").toString(), it.getString(it.getColumnIndexOrThrow("story_quote")))
             }
         }
-        pending.forEach { (peer, client, body, at) -> deliver(peer, client, body, at.toLong()) }
+        pending.forEach { (peer, client, body, at, story) -> deliver(peer!!, client!!, body!!, at!!.toLong(), story) }
     }
 
-    private suspend fun deliver(peerId: String, clientId: String, text: String, sentAt: Long) {
+    private suspend fun deliver(peerId: String, clientId: String, text: String, sentAt: Long, storyQuote: String? = null) {
         try {
-            val payload = json.encodeToString(ChatPayload.serializer(), ChatPayload(id = clientId, text = text, ts = sentAt)).toByteArray()
+            val payload = json.encodeToString(ChatPayload.serializer(), ChatPayload(id = clientId, text = text, ts = sentAt, story = storyQuote)).toByteArray()
             sendEncrypted(peerId, payload, clientId)
             setStatus(peerId, clientId, MessageStatus.SENT)
         } catch (e: ApiError) {
@@ -352,7 +358,7 @@ class ChatRepository(
                 val payload = runCatching { json.decodeFromString(ChatPayload.serializer(), String(bytes)) }.getOrNull()
                 when (payload?.kind) {
                     "text" -> if (payload.text != null) {
-                        val isNew = storeIncoming(envelope.senderId, payload.id, payload.text, payload.ts.takeIf { it > 0 } ?: envelope.sentAt)
+                        val isNew = storeIncoming(envelope.senderId, payload.id, payload.text, payload.ts.takeIf { it > 0 } ?: envelope.sentAt, payload.story?.take(200))
                         setTyping(envelope.senderId, false)
                         if (isNew) {
                             afterIncoming(envelope.senderId, payload.id)
@@ -444,12 +450,12 @@ class ChatRepository(
     }
 
     /** Returns false if this message was already stored (a duplicate delivery). */
-    private fun storeIncoming(peerId: String, clientId: String, text: String, sentAt: Long): Boolean {
+    private fun storeIncoming(peerId: String, clientId: String, text: String, sentAt: Long, storyQuote: String? = null): Boolean {
         val existing = db.queryOne("SELECT 1 FROM messages WHERE peer_id = ? AND client_id = ? AND from_me = 0", peerId, clientId) { true }
         if (existing == true) return false
         db.exec(
-            "INSERT INTO messages (peer_id, client_id, from_me, body, sent_at, status) VALUES (?, ?, 0, ?, ?, ?)",
-            peerId, clientId, text, sentAt, MessageStatus.RECEIVED.name,
+            "INSERT INTO messages (peer_id, client_id, from_me, body, sent_at, status, story_quote) VALUES (?, ?, 0, ?, ?, ?, ?)",
+            peerId, clientId, text, sentAt, MessageStatus.RECEIVED.name, storyQuote,
         )
         val unread = if (openPeer == peerId) 0 else 1
         db.exec(

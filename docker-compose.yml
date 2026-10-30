@@ -48,7 +48,9 @@ services:
         cat > /etc/s3.json <<EOF
         {"identities":[{"name":"app","credentials":[{"accessKey":"$$S3_ACCESS_KEY","secretKey":"$$S3_SECRET_KEY"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
         EOF
-        exec weed server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/s3.json -ip.bind=0.0.0.0
+        # -volume.max=0: size the volume count from free disk (the default of 8 runs out fast,
+        # since every bucket reserves several); 256 MB volumes suit a dev machine.
+        exec weed server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/s3.json -ip.bind=0.0.0.0 -volume.max=0 -master.volumeSizeLimitMB=256
     ports:
       - "127.0.0.1:8333:8333"
     volumes:

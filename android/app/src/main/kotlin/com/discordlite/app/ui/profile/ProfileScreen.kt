@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.Mail
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.ScreenshotMonitor
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -101,7 +102,7 @@ import com.discordlite.designsystem.theme.DlTheme
 import com.discordlite.designsystem.theme.rememberHaptics
 
 @Composable
-fun ProfileScreen(onOpenSettings: () -> Unit, onEditProfile: () -> Unit) {
+fun ProfileScreen(onOpenSettings: () -> Unit, onEditProfile: () -> Unit, onOpenStoryArchive: () -> Unit) {
     val colors = DlTheme.colors
     val container = LocalAppContainer.current
     val account by container.account.me.collectAsStateWithLifecycle()
@@ -126,6 +127,7 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onEditProfile: () -> Unit) {
                     Row(Modifier.statusBarsPadding().padding(12.dp).align(Alignment.TopEnd), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         ThemeToggle()
                         IconCircleButton(Icons.Rounded.Share, "Share profile", {}, size = 38.dp)
+                        IconCircleButton(Icons.Rounded.History, "Story archive", onOpenStoryArchive, size = 38.dp)
                         IconCircleButton(Icons.Rounded.Settings, "Settings and privacy", onOpenSettings, size = 38.dp)
                     }
                     Box(

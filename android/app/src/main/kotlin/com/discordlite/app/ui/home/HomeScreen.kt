@@ -1,5 +1,8 @@
 package com.discordlite.app.ui.home
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
@@ -24,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.discordlite.app.data.SampleData
 import com.discordlite.app.ui.chats.ChatsScreen
 import com.discordlite.app.ui.chats.NewChatSheetContent
@@ -31,6 +35,7 @@ import com.discordlite.app.ui.chats.NewGroupSheetContent
 import com.discordlite.app.ui.feed.FeedScreen
 import com.discordlite.app.ui.profile.ProfileScreen
 import com.discordlite.app.ui.servers.AddToServerSheetContent
+import com.discordlite.app.ui.stories.AddStorySheetContent
 import com.discordlite.app.ui.servers.CreateServerSheetContent
 import com.discordlite.app.ui.servers.InviteSheetContent
 import com.discordlite.app.ui.servers.JoinWithInviteSheetContent
@@ -51,6 +56,7 @@ private sealed interface HomeSheet {
     data object JoinWithInvite : HomeSheet
     data class Invite(val serverId: String) : HomeSheet
     data class AddToServer(val serverId: String) : HomeSheet
+    data object AddStory : HomeSheet
 }
 
 private fun tabs(unread: Int) = listOf(
@@ -73,11 +79,19 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenFriends: () -> Unit,
     onEditProfile: () -> Unit,
+    onOpenStories: (userId: String) -> Unit,
+    onComposeStory: (uri: String) -> Unit,
+    onOpenStoryArchive: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val conversations by LocalAppContainer.current.chat.conversations.collectAsStateWithLifecycle(emptyList())
     val tabItems = tabs(conversations.sumOf { it.unread })
     var sheet by remember { mutableStateOf<HomeSheet?>(null) }
+    val context = LocalContext.current
+    // Photo picker (no storage permission needed) and camera, for a new story.
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { onComposeStory(it.toString()) } }
+    var captureUri by rememberSaveable { mutableStateOf<String?>(null) }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved -> if (saved) captureUri?.let(onComposeStory) }
     // Keep the last sheet's content while it animates away.
     var lastSheet by remember { mutableStateOf<HomeSheet?>(null) }
     if (sheet != null) lastSheet = sheet
@@ -88,7 +102,14 @@ fun HomeScreen(
         Box(Modifier.fillMaxSize().hazeSource(hazeState)) {
             holder.SaveableStateProvider(tab) {
                 when (tab) {
-                    0 -> ChatsScreen(onOpenChat = onOpenChat, onOpenGroup = onOpenGroup, onNewChat = { sheet = HomeSheet.NewChat }, onOpenFriends = onOpenFriends)
+                    0 -> ChatsScreen(
+                        onOpenChat = onOpenChat,
+                        onOpenGroup = onOpenGroup,
+                        onNewChat = { sheet = HomeSheet.NewChat },
+                        onOpenFriends = onOpenFriends,
+                        onOpenStories = onOpenStories,
+                        onAddStory = { sheet = HomeSheet.AddStory },
+                    )
                     1 -> ServersScreen(
                         onOpenChannel = onOpenChannel,
                         onOpenSettings = onOpenServerSettings,
@@ -97,7 +118,7 @@ fun HomeScreen(
                         onInvite = { sheet = HomeSheet.Invite(it) },
                     )
                     2 -> FeedScreen()
-                    else -> ProfileScreen(onOpenSettings = onOpenSettings, onEditProfile = onEditProfile)
+                    else -> ProfileScreen(onOpenSettings = onOpenSettings, onEditProfile = onEditProfile, onOpenStoryArchive = onOpenStoryArchive)
                 }
             }
         }
@@ -132,6 +153,19 @@ fun HomeScreen(
                 HomeSheet.JoinWithInvite -> JoinWithInviteSheetContent(onDone = { sheet = null })
                 is HomeSheet.Invite -> InviteSheetContent(s.serverId)
                 is HomeSheet.AddToServer -> AddToServerSheetContent(s.serverId, onDone = { sheet = null })
+                HomeSheet.AddStory -> AddStorySheetContent(
+                    onPick = {
+                        sheet = null
+                        pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    onCamera = {
+                        sheet = null
+                        val file = java.io.File(context.cacheDir, "captures").apply { mkdirs() }.resolve("story-${System.currentTimeMillis()}.jpg")
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                        captureUri = uri.toString()
+                        takePhoto.launch(uri)
+                    },
+                )
                 null -> Unit
             }
         }

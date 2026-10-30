@@ -23,6 +23,7 @@ import com.discordlite.app.chat.GatewayClient
 import com.discordlite.app.chat.ChatRepository
 import com.discordlite.app.chat.GroupChats
 import com.discordlite.app.servers.ServersRepository
+import com.discordlite.app.stories.StoriesRepository
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.discordlite.app.BuildConfig
 import com.discordlite.app.data.remote.ApiClient
@@ -172,6 +173,9 @@ class AppContainer(context: Context) {
     }
     val notifier = Notifier(context, settings).also { n -> chat.onChatOpened = n::clear }
 
+    /** Stories: friends-only photos for 24 hours (not end-to-end encrypted; cached in memory only). */
+    val stories = StoriesRepository(context, api)
+
     /** Servers and channels (not end-to-end encrypted; kept in memory only). */
     val servers: ServersRepository = ServersRepository(api, scope, selfId).also { repo ->
         repo.sendTyping = { gateway.sendChannelTyping(it) }
@@ -235,6 +239,7 @@ class AppContainer(context: Context) {
         account.signOut()
         social.clear()
         servers.clear()
+        stories.clear()
         withContext(Dispatchers.IO) { local.wipe() }
     }
 

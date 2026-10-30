@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Where the camera saves a photo for a story before it's prepared and uploaded (app cache only). -->
+<paths>
+    <cache-path name="captures" path="captures/" />
+</paths>

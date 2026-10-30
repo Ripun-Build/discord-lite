@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
@@ -284,6 +285,7 @@ private fun BubbleBody(
         RoundedCornerShape(topStart = if (firstOfGroup) big else small, topEnd = big, bottomEnd = big, bottomStart = if (lastOfGroup) big else small)
     }
     val failed = message.status == MessageStatus.FAILED
+    val quote = message.storyQuote
     Column(
         Modifier
             .fillMaxWidth()
@@ -291,6 +293,21 @@ private fun BubbleBody(
             .padding(top = topPadding),
         horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
     ) {
+        if (quote != null) {
+            // "Replied to your story · gg last night"
+            Row(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(3.dp).height(14.dp).clip(RoundedCornerShape(2.dp)).background(colors.storyGradient.first()))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    (if (mine) "You replied to their story" else "Replied to your story") + " · " + quote,
+                    style = DlTheme.type.caption,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 260.dp),
+                )
+            }
+        }
         Box(
             Modifier
                 .widthIn(max = 290.dp)

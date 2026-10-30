@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Tag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.rounded.PersonAdd
@@ -52,12 +53,22 @@ import com.discordlite.designsystem.component.pressable
 import com.discordlite.designsystem.theme.DlTheme
 
 @Composable
-fun ChatsScreen(onOpenChat: (String) -> Unit, onOpenGroup: (String) -> Unit, onNewChat: () -> Unit, onOpenFriends: () -> Unit) {
+fun ChatsScreen(
+    onOpenChat: (String) -> Unit,
+    onOpenGroup: (String) -> Unit,
+    onNewChat: () -> Unit,
+    onOpenFriends: () -> Unit,
+    onOpenStories: (userId: String) -> Unit,
+    onAddStory: () -> Unit,
+) {
     val colors = DlTheme.colors
     val container = LocalAppContainer.current
     val me by container.account.me.collectAsStateWithLifecycle()
     val friends by container.social.friends.collectAsStateWithLifecycle()
     val conversations by container.chat.conversations.collectAsStateWithLifecycle(emptyList())
+    val stories by container.stories.feed.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { runCatching { container.stories.refresh() } }
+    val mine = stories.firstOrNull { it.userId == me?.id }
     LargeTitleScreen(
         title = "Chats",
         actions = {
@@ -76,9 +87,14 @@ fun ChatsScreen(onOpenChat: (String) -> Unit, onOpenGroup: (String) -> Unit, onN
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                item { StoryAvatar(me?.displayName ?: SampleData.me.name, "Your story", seen = true, index = 0, isYou = true, onClick = {}) }
-                itemsIndexed(SampleData.stories, key = { _, s -> s.user.id }) { i, story ->
-                    StoryAvatar(story.user.name, story.user.name.substringBefore(' '), story.seen, index = i + 1, onClick = {})
+                // Yours: a ring while you have a story up (tap to watch, + in it to add more); otherwise tap to add.
+                item(key = "you") {
+                    StoryAvatar(me?.displayName ?: "You", "Your story", seen = mine == null, index = 0, isYou = true, onClick = {
+                        if (mine != null) onOpenStories(mine.userId) else onAddStory()
+                    })
+                }
+                itemsIndexed(stories.filter { it.userId != me?.id }, key = { _, s -> s.userId }) { i, author ->
+                    StoryAvatar(author.displayName, author.displayName.substringBefore(' '), author.allSeen, index = i + 1, onClick = { onOpenStories(author.userId) })
                 }
             }
         }

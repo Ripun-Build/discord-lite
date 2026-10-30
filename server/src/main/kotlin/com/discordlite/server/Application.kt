@@ -17,7 +17,11 @@ import com.discordlite.server.messaging.GroupService
 import com.discordlite.server.messaging.KeyService
 import com.discordlite.server.messaging.MessageService
 import com.discordlite.server.plugins.configureWebSockets
+import com.discordlite.server.media.InMemoryMediaStore
+import com.discordlite.server.media.MediaStore
+import com.discordlite.server.media.S3MediaStore
 import com.discordlite.server.servers.ServerService
+import com.discordlite.server.stories.StoryService
 import com.discordlite.server.social.SocialService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -41,7 +45,7 @@ fun main(args: Array<String>) {
 }
 
 /** Everything the routes need, built once. Tests build their own with a test database and mailer. */
-class AppDeps(val config: AppConfig, dataSource: DataSource, mailer: Mailer, pusher: Pusher? = null) {
+class AppDeps(val config: AppConfig, dataSource: DataSource, mailer: Mailer, pusher: Pusher? = null, mediaStore: MediaStore? = null) {
     /** Background work that shouldn't hold up a request (e.g. sending pushes). */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val db = Db(dataSource)
@@ -58,6 +62,12 @@ class AppDeps(val config: AppConfig, dataSource: DataSource, mailer: Mailer, pus
     val groups = GroupService(db, social, gateway)
     val messages = MessageService(db, keys, social, gateway, groups, this.pusher, scope)
     val servers = ServerService(db, gateway, this.pusher, scope)
+    val media: MediaStore = mediaStore ?: if (config.s3AccessKey != null && config.s3SecretKey != null) {
+        S3MediaStore(config.s3Endpoint, config.s3Bucket, config.s3AccessKey, config.s3SecretKey)
+    } else {
+        InMemoryMediaStore().also { LoggerFactory.getLogger("Media").warn("No S3 keys: photos are kept in memory and lost on restart") }
+    }
+    val stories = StoryService(db, media)
 }
 
 fun Application.module() {
@@ -75,6 +85,7 @@ fun Application.configure(deps: AppDeps) {
     configureSecurity(deps.tokens, deps.config)
     configureWebSockets()
     configureRouting(deps)
+    (deps.media as? S3MediaStore)?.let { store -> launch { runCatching { store.ensureBucket() } } }
     // Undelivered envelopes are dropped after 30 days.
     launch {
         while (isActive) {

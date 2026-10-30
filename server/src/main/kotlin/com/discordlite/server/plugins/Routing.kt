@@ -4,6 +4,7 @@ import com.discordlite.server.AppDeps
 import com.discordlite.server.auth.authRoutes
 import com.discordlite.server.messaging.messagingRoutes
 import com.discordlite.server.servers.serverRoutes
+import com.discordlite.server.stories.storyRoutes
 import com.discordlite.server.social.socialRoutes
 import io.ktor.server.application.Application
 import io.ktor.server.auth.authenticate
@@ -27,6 +28,7 @@ fun Application.configureRouting(deps: AppDeps) {
             socialRoutes(deps.social)
             messagingRoutes(deps.keys, deps.messages, deps.groups, deps.servers, deps.gateway, deps.pushTokens)
             serverRoutes(deps.servers)
+            storyRoutes(deps.stories)
         }
     }
 }

@@ -220,3 +220,22 @@ data class InviteResponse(
 @Serializable data class CreateInviteBody(val maxAgeSeconds: Long?, val maxUses: Int?, val neverExpires: Boolean)
 
 @Serializable data class BanResponse(val userId: String, val username: String, val displayName: String, val bannedAt: Long)
+
+// Phase 6: stories (photos friends can see for 24 hours). Not end-to-end encrypted.
+
+/** [seen]: whether you've seen it. [viewCount]: only on your own stories. */
+@Serializable
+data class StoryResponse(
+    val id: String,
+    val authorId: String,
+    val caption: String? = null,
+    val width: Int,
+    val height: Int,
+    val createdAt: Long,
+    val expiresAt: Long,
+    val seen: Boolean,
+    val viewCount: Int? = null,
+)
+
+@Serializable data class StoryAuthorResponse(val userId: String, val username: String, val displayName: String, val stories: List<StoryResponse>, val allSeen: Boolean)
+@Serializable data class StoryViewerResponse(val userId: String, val username: String, val displayName: String, val viewedAt: Long)

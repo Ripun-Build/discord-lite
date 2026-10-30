@@ -31,7 +31,13 @@ import com.discordlite.app.ui.auth.SignInScreen
 import com.discordlite.app.ui.auth.SignUpScreen
 import com.discordlite.app.ui.auth.VerifyEmailScreen
 import com.discordlite.app.ui.auth.WelcomeScreen
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import com.discordlite.app.ui.servers.JoinInviteScreen
+import com.discordlite.app.ui.stories.StoryArchiveScreen
+import com.discordlite.app.ui.stories.StoryComposerScreen
+import com.discordlite.app.ui.stories.StoryViewerScreen
 import com.discordlite.app.ui.servers.RoleEditScreen
 import com.discordlite.app.ui.servers.ServerBansScreen
 import com.discordlite.app.ui.servers.ServerInvitesScreen
@@ -60,6 +66,9 @@ import kotlinx.serialization.Serializable
 @Serializable data class GroupInfoRoute(val groupId: String)
 @Serializable data class ChannelRoute(val serverId: String, val channelId: String)
 @Serializable data class JoinInviteRoute(val code: String)
+@Serializable data class StoryViewerRoute(val userId: String? = null, val archiveStoryId: String? = null)
+@Serializable data class StoryComposerRoute(val uri: String)
+@Serializable object StoryArchiveRoute
 @Serializable data class ServerSettingsRoute(val serverId: String)
 @Serializable data class ServerInvitesRoute(val serverId: String)
 @Serializable data class ServerBansRoute(val serverId: String)
@@ -187,6 +196,9 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onOpenGroup = { navController.navigate(GroupChatRoute(it)) },
                 onOpenChannel = { server, channel -> navController.navigate(ChannelRoute(server, channel)) },
                 onOpenServerSettings = { navController.navigate(ServerSettingsRoute(it)) },
+                onOpenStories = { navController.navigate(StoryViewerRoute(userId = it)) },
+                onComposeStory = { navController.navigate(StoryComposerRoute(it)) },
+                onOpenStoryArchive = { navController.navigate(StoryArchiveRoute) },
                 onOpenSettings = { navController.navigate(SettingsRoute) },
                 onOpenFriends = { navController.navigate(FriendsRoute) },
                 onEditProfile = { navController.navigate(EditProfileRoute) },
@@ -210,6 +222,25 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         composable<ChannelRoute> { entry ->
             val route = entry.toRoute<ChannelRoute>()
             ServerChannelScreen(route.serverId, route.channelId, onBack = navController::popBackStack)
+        }
+        composable<StoryViewerRoute> { entry ->
+            val route = entry.toRoute<StoryViewerRoute>()
+            // "+" in your own story: pick another photo straight away.
+            val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+                uri?.let { navController.navigate(StoryComposerRoute(it.toString())) { popUpTo<StoryViewerRoute> { inclusive = true } } }
+            }
+            StoryViewerScreen(
+                startUserId = route.userId,
+                archiveStoryId = route.archiveStoryId,
+                onBack = navController::popBackStack,
+                onAddStory = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            )
+        }
+        composable<StoryComposerRoute> { entry ->
+            StoryComposerScreen(entry.toRoute<StoryComposerRoute>().uri, onBack = navController::popBackStack, onPosted = navController::popBackStack)
+        }
+        composable<StoryArchiveRoute> {
+            StoryArchiveScreen(onBack = navController::popBackStack, onOpen = { navController.navigate(StoryViewerRoute(archiveStoryId = it)) })
         }
         composable<JoinInviteRoute> { entry ->
             JoinInviteScreen(entry.toRoute<JoinInviteRoute>().code, onBack = navController::popBackStack)

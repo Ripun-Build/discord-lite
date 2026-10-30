@@ -6,7 +6,7 @@ A privacy-first, end-to-end encrypted real-time chat app for Android.
 - **Backend:** Kotlin + Ktor, PostgreSQL, Redis, S3-compatible blob storage
 - **Security:** Signal Protocol (PQXDH + Double Ratchet) for DMs, no phone numbers, no contact upload, minimal server metadata (sealed sender planned)
 
-Status: Phase 5 done — end-to-end encrypted 1:1 and group chats, Discord-style servers with text channels, roles and @mentions (server channels are not end-to-end encrypted), and invite links with cards and bans. Stories (Phase 6) are next.
+Status: Phase 6 done — end-to-end encrypted 1:1 and group chats, Discord-style servers with text channels, roles and @mentions (server channels are not end-to-end encrypted), invite links with cards and bans, and friends-only photo stories that last 24 hours (stories are not end-to-end encrypted; photos are re-saved without location or camera data). Gaming posts (Phase 7) are next.
 
 ## Repo layout
 

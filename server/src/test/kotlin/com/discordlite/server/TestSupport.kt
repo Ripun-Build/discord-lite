@@ -71,7 +71,7 @@ class CapturingMailer : Mailer {
         Regex("\\b\\d{6}\\b").find(sent.last { it.to.equals(to, ignoreCase = true) }.body)!!.value
 }
 
-class TestApp(val mailer: CapturingMailer, val deps: AppDeps)
+class TestApp(val mailer: CapturingMailer, val deps: AppDeps, val media: com.discordlite.server.media.InMemoryMediaStore)
 
 /** Records who would have been woken by a push. */
 class CapturingPusher : com.discordlite.server.push.Pusher {
@@ -83,9 +83,10 @@ class CapturingPusher : com.discordlite.server.push.Pusher {
 
 fun ApplicationTestBuilder.startApp(pusher: CapturingPusher = CapturingPusher()): TestApp {
     val mailer = CapturingMailer()
-    val deps = AppDeps(TestDb.config, TestDb.dataSource, mailer, pusher)
+    val media = com.discordlite.server.media.InMemoryMediaStore()
+    val deps = AppDeps(TestDb.config, TestDb.dataSource, mailer, pusher, media)
     application { configure(deps) }
-    return TestApp(mailer, deps)
+    return TestApp(mailer, deps, media)
 }
 
 fun ApplicationTestBuilder.jsonClient(): HttpClient = createClient { install(ContentNegotiation) { json() } }

@@ -16,6 +16,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.forms.submitFormWithBinaryData
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -49,7 +50,7 @@ import java.util.UUID
  * Add it to a group and it echoes there too, with its own sender key (shared with each member over
  * 1:1 sessions first, as the app does). Add it to a server and @mention it in a channel: it answers
  * there, mentioning you back (server channels aren't end-to-end encrypted). DM it an invite link
- * and it joins that server.
+ * and it joins that server. It posts a story when it starts (BOT_STORY=0 to skip).
  */
 fun main() = runBlocking {
     val server = System.getenv("BOT_SERVER") ?: "http://localhost:8080"
@@ -98,6 +99,31 @@ fun main() = runBlocking {
     }
     check(upload.status == HttpStatusCode.NoContent) { "Key upload failed: ${upload.bodyAsText()}" }
     println("Published Signal keys. Add @$username as a friend in the app, then send it a message.")
+
+    // A story for friends to watch (set BOT_STORY=0 to skip): a drawn picture with a caption.
+    if (System.getenv("BOT_STORY") != "0") {
+        val picture = java.awt.image.BufferedImage(1080, 1920, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        picture.createGraphics().apply {
+            paint = java.awt.GradientPaint(0f, 0f, java.awt.Color(88, 101, 242), 1080f, 1920f, java.awt.Color(235, 69, 158))
+            fillRect(0, 0, 1080, 1920)
+            color = java.awt.Color.WHITE
+            font = java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 120)
+            drawString("echo", 380, 980)
+            dispose()
+        }
+        val bytes = java.io.ByteArrayOutputStream().also { javax.imageio.ImageIO.write(picture, "png", it) }.toByteArray()
+        val posted = http.submitFormWithBinaryData(
+            url = "$server/v1/stories",
+            formData = io.ktor.client.request.forms.formData {
+                append("image", bytes, io.ktor.http.Headers.build {
+                    append(io.ktor.http.HttpHeaders.ContentType, "image/png")
+                    append(io.ktor.http.HttpHeaders.ContentDisposition, "filename=\"echo.png\"")
+                })
+                append("caption", "hello from echobot 👋")
+            },
+        ) { bearerAuth(token) }
+        println(if (posted.status.isSuccess()) "Posted a story." else "Story failed: ${posted.bodyAsText()}")
+    }
 
     // 3. Accept friend requests every few seconds.
     launch {

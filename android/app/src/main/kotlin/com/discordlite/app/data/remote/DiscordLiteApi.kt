@@ -1,11 +1,16 @@
 package com.discordlite.app.data.remote
 
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import retrofit2.Call
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.PATCH
+import retrofit2.http.Part
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -85,6 +90,14 @@ interface DiscordLiteApi {
     @GET("v1/servers/{serverId}/bans") suspend fun bans(@Path("serverId") serverId: String): List<BanResponse>
     @PUT("v1/servers/{serverId}/bans/{userId}") suspend fun ban(@Path("serverId") serverId: String, @Path("userId") userId: String): Response<Unit>
     @DELETE("v1/servers/{serverId}/bans/{userId}") suspend fun unban(@Path("serverId") serverId: String, @Path("userId") userId: String): Response<Unit>
+
+    @GET("v1/stories") suspend fun stories(): List<StoryAuthorResponse>
+    @GET("v1/stories/archive") suspend fun storyArchive(): List<StoryResponse>
+    @Multipart @POST("v1/stories") suspend fun postStory(@Part image: MultipartBody.Part, @Part("caption") caption: RequestBody?): StoryResponse
+    @GET("v1/stories/{storyId}/media") suspend fun storyMedia(@Path("storyId") storyId: String): ResponseBody
+    @POST("v1/stories/{storyId}/view") suspend fun viewStory(@Path("storyId") storyId: String): Response<Unit>
+    @GET("v1/stories/{storyId}/viewers") suspend fun storyViewers(@Path("storyId") storyId: String): List<StoryViewerResponse>
+    @DELETE("v1/stories/{storyId}") suspend fun deleteStory(@Path("storyId") storyId: String): Response<Unit>
 
     @GET("v1/mentions") suspend fun mentions(): List<MentionResponse>
     @POST("v1/mentions/ack") suspend fun ackMentions(@Body body: MentionAckBody): Response<Unit>

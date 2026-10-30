@@ -114,6 +114,8 @@ class LocalDatabase(private val context: Context) {
 
         override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
             if (oldVersion < 2) GROUPS.forEach { db.execSQL(it.trimIndent()) }
+            // Version 3: a DM can be a reply to someone's story; this is what the story said.
+            if (oldVersion < 3) db.execSQL("ALTER TABLE messages ADD COLUMN story_quote TEXT")
         }
 
         /**
@@ -144,7 +146,7 @@ class LocalDatabase(private val context: Context) {
     }
 
     private companion object {
-        const val VERSION = 2
+        const val VERSION = 3
         const val DB_NAME = "discordlite.db"
         const val PREFS = "local_db"
         const val KEY_PASSPHRASE = "passphrase"
