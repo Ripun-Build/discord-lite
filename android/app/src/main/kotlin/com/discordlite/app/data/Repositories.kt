@@ -23,6 +23,7 @@ import com.discordlite.app.chat.GatewayClient
 import com.discordlite.app.chat.ChatRepository
 import com.discordlite.app.chat.GroupChats
 import com.discordlite.app.servers.ServersRepository
+import com.discordlite.app.posts.PostsRepository
 import com.discordlite.app.stories.StoriesRepository
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.discordlite.app.BuildConfig
@@ -88,8 +89,8 @@ class AccountRepository(private val api: DiscordLiteApi, private val store: Toke
 
     suspend fun loadMe(): Me = apiCall { api.me() }.also { _me.value = it }
 
-    suspend fun updateProfile(displayName: String? = null, bio: String? = null, dmPolicy: DmPolicy? = null): Me =
-        apiCall { api.updateMe(UpdateMeBody(displayName, bio, dmPolicy)) }.also { _me.value = it }
+    suspend fun updateProfile(displayName: String? = null, bio: String? = null, dmPolicy: DmPolicy? = null, isPrivate: Boolean? = null): Me =
+        apiCall { api.updateMe(UpdateMeBody(displayName, bio, dmPolicy, isPrivate)) }.also { _me.value = it }
 
     suspend fun signOut() {
         store.session.value?.let { tokens -> runCatching { apiCallUnit { api.logout(RefreshBody(tokens.refreshToken)) } } }
@@ -175,6 +176,7 @@ class AppContainer(context: Context) {
 
     /** Stories: friends-only photos for 24 hours (not end-to-end encrypted; cached in memory only). */
     val stories = StoriesRepository(context, api)
+    val posts = PostsRepository(context, api, scope)
 
     /** Servers and channels (not end-to-end encrypted; kept in memory only). */
     val servers: ServersRepository = ServersRepository(api, scope, selfId).also { repo ->
@@ -240,6 +242,7 @@ class AppContainer(context: Context) {
         social.clear()
         servers.clear()
         stories.clear()
+        posts.clear()
         withContext(Dispatchers.IO) { local.wipe() }
     }
 

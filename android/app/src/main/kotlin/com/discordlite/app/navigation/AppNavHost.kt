@@ -35,6 +35,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import com.discordlite.app.ui.servers.JoinInviteScreen
+import com.discordlite.app.ui.feed.PeopleSearchScreen
+import com.discordlite.app.ui.posts.PostComposerScreen
+import com.discordlite.app.ui.posts.PostDetailScreen
+import com.discordlite.app.ui.profile.FollowListScreen
+import com.discordlite.app.ui.profile.FollowRequestsScreen
+import com.discordlite.app.ui.profile.UserProfileScreen
 import com.discordlite.app.ui.stories.StoryArchiveScreen
 import com.discordlite.app.ui.stories.StoryComposerScreen
 import com.discordlite.app.ui.stories.StoryViewerScreen
@@ -69,6 +75,13 @@ import kotlinx.serialization.Serializable
 @Serializable data class StoryViewerRoute(val userId: String? = null, val archiveStoryId: String? = null)
 @Serializable data class StoryComposerRoute(val uri: String)
 @Serializable object StoryArchiveRoute
+@Serializable data class UserProfileRoute(val userId: String)
+@Serializable data class PostDetailRoute(val postId: String)
+/** [uris] are the picked photos, one per line. */
+@Serializable data class PostComposerRoute(val uris: String)
+@Serializable data class FollowListRoute(val userId: String, val following: Boolean)
+@Serializable object FollowRequestsRoute
+@Serializable object PeopleSearchRoute
 @Serializable data class ServerSettingsRoute(val serverId: String)
 @Serializable data class ServerInvitesRoute(val serverId: String)
 @Serializable data class ServerBansRoute(val serverId: String)
@@ -125,6 +138,7 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             val channel = peer.takeIf { it.startsWith("channel:") }?.split(':')
             val route: Any = when {
                 peer.startsWith("invite:") -> JoinInviteRoute(peer.removePrefix("invite:"))
+                peer.startsWith("post:") -> PostDetailRoute(peer.removePrefix("post:"))
                 channel != null && channel.size == 3 -> ChannelRoute(channel[1], channel[2])
                 container.groups.isGroup(peer) -> GroupChatRoute(peer)
                 else -> ConversationRoute(peer)
@@ -199,6 +213,12 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 onOpenStories = { navController.navigate(StoryViewerRoute(userId = it)) },
                 onComposeStory = { navController.navigate(StoryComposerRoute(it)) },
                 onOpenStoryArchive = { navController.navigate(StoryArchiveRoute) },
+                onOpenUser = { navController.navigate(UserProfileRoute(it)) },
+                onOpenPost = { navController.navigate(PostDetailRoute(it)) },
+                onOpenFollowList = { user, following -> navController.navigate(FollowListRoute(user, following)) },
+                onOpenFollowRequests = { navController.navigate(FollowRequestsRoute) },
+                onSearchPeople = { navController.navigate(PeopleSearchRoute) },
+                onComposePost = { navController.navigate(PostComposerRoute(it.joinToString("\n"))) },
                 onOpenSettings = { navController.navigate(SettingsRoute) },
                 onOpenFriends = { navController.navigate(FriendsRoute) },
                 onEditProfile = { navController.navigate(EditProfileRoute) },
@@ -241,6 +261,35 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         }
         composable<StoryArchiveRoute> {
             StoryArchiveScreen(onBack = navController::popBackStack, onOpen = { navController.navigate(StoryViewerRoute(archiveStoryId = it)) })
+        }
+        composable<UserProfileRoute> { entry ->
+            UserProfileScreen(
+                entry.toRoute<UserProfileRoute>().userId,
+                onBack = navController::popBackStack,
+                onOpenPost = { navController.navigate(PostDetailRoute(it)) },
+                onOpenFollowList = { user, following -> navController.navigate(FollowListRoute(user, following)) },
+                onMessage = { navController.navigate(ConversationRoute(it)) },
+            )
+        }
+        composable<PostDetailRoute> { entry ->
+            PostDetailScreen(
+                entry.toRoute<PostDetailRoute>().postId,
+                onBack = navController::popBackStack,
+                onOpenUser = { navController.navigate(UserProfileRoute(it)) },
+            )
+        }
+        composable<PostComposerRoute> { entry ->
+            PostComposerScreen(entry.toRoute<PostComposerRoute>().uris.split('\n'), onBack = navController::popBackStack, onPosted = navController::popBackStack)
+        }
+        composable<FollowListRoute> { entry ->
+            val route = entry.toRoute<FollowListRoute>()
+            FollowListScreen(route.userId, route.following, onBack = navController::popBackStack, onOpenUser = { navController.navigate(UserProfileRoute(it)) })
+        }
+        composable<FollowRequestsRoute> {
+            FollowRequestsScreen(onBack = navController::popBackStack, onOpenUser = { navController.navigate(UserProfileRoute(it)) })
+        }
+        composable<PeopleSearchRoute> {
+            PeopleSearchScreen(onBack = navController::popBackStack, onOpenUser = { navController.navigate(UserProfileRoute(it)) })
         }
         composable<JoinInviteRoute> { entry ->
             JoinInviteScreen(entry.toRoute<JoinInviteRoute>().code, onBack = navController::popBackStack)

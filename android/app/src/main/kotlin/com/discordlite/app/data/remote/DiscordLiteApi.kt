@@ -99,6 +99,32 @@ interface DiscordLiteApi {
     @GET("v1/stories/{storyId}/viewers") suspend fun storyViewers(@Path("storyId") storyId: String): List<StoryViewerResponse>
     @DELETE("v1/stories/{storyId}") suspend fun deleteStory(@Path("storyId") storyId: String): Response<Unit>
 
+    @GET("v1/users/{userId}/profile") suspend fun userProfile(@Path("userId") userId: String): UserProfileResponse
+    @GET("v1/users/{userId}/followers") suspend fun followers(@Path("userId") userId: String): List<FollowUserResponse>
+    @GET("v1/users/{userId}/following") suspend fun following(@Path("userId") userId: String): List<FollowUserResponse>
+    @PUT("v1/users/{userId}/follow") suspend fun follow(@Path("userId") userId: String): FollowResponse
+    @DELETE("v1/users/{userId}/follow") suspend fun unfollow(@Path("userId") userId: String): Response<Unit>
+    @DELETE("v1/users/{userId}/follower") suspend fun removeFollower(@Path("userId") userId: String): Response<Unit>
+    @GET("v1/follows/requests") suspend fun followRequests(): List<FollowUserResponse>
+    @POST("v1/follows/requests/{userId}/accept") suspend fun acceptFollow(@Path("userId") userId: String): Response<Unit>
+    @DELETE("v1/follows/requests/{userId}") suspend fun declineFollow(@Path("userId") userId: String): Response<Unit>
+
+    @GET("v1/posts/feed") suspend fun postFeed(@Query("before") before: String? = null): List<PostResponse>
+    @GET("v1/posts/saved") suspend fun savedPosts(@Query("before") before: String? = null): List<PostResponse>
+    @GET("v1/users/{userId}/posts") suspend fun userPosts(@Path("userId") userId: String, @Query("before") before: String? = null): List<PostResponse>
+    @GET("v1/posts/games") suspend fun games(): List<String>
+    @Multipart @POST("v1/posts") suspend fun createPost(@Part images: List<MultipartBody.Part>, @Part("caption") caption: RequestBody?, @Part("game") game: RequestBody?): PostResponse
+    @GET("v1/posts/{postId}") suspend fun post(@Path("postId") postId: String): PostResponse
+    @DELETE("v1/posts/{postId}") suspend fun deletePost(@Path("postId") postId: String): Response<Unit>
+    @GET("v1/posts/{postId}/media/{position}") suspend fun postMedia(@Path("postId") postId: String, @Path("position") position: Int): ResponseBody
+    @PUT("v1/posts/{postId}/like") suspend fun likePost(@Path("postId") postId: String): LikeResponse
+    @DELETE("v1/posts/{postId}/like") suspend fun unlikePost(@Path("postId") postId: String): LikeResponse
+    @PUT("v1/posts/{postId}/save") suspend fun savePost(@Path("postId") postId: String): Response<Unit>
+    @DELETE("v1/posts/{postId}/save") suspend fun unsavePost(@Path("postId") postId: String): Response<Unit>
+    @GET("v1/posts/{postId}/comments") suspend fun comments(@Path("postId") postId: String): List<CommentResponse>
+    @POST("v1/posts/{postId}/comments") suspend fun addComment(@Path("postId") postId: String, @Body body: NewCommentBody): CommentResponse
+    @DELETE("v1/posts/{postId}/comments/{commentId}") suspend fun deleteComment(@Path("postId") postId: String, @Path("commentId") commentId: String): Response<Unit>
+
     @GET("v1/mentions") suspend fun mentions(): List<MentionResponse>
     @POST("v1/mentions/ack") suspend fun ackMentions(@Body body: MentionAckBody): Response<Unit>
 

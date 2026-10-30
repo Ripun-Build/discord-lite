@@ -21,6 +21,7 @@ import kotlin.time.Duration.Companion.minutes
 const val ACCESS_AUTH = "access"
 val AuthRateLimit = RateLimitName("auth")
 val InviteRateLimit = RateLimitName("invites")
+val CommentRateLimit = RateLimitName("comments")
 
 fun Application.configureSecurity(tokens: TokenService, config: AppConfig) {
     install(Authentication) {
@@ -39,6 +40,11 @@ fun Application.configureSecurity(tokens: TokenService, config: AppConfig) {
         // Looking up invite codes, per account: stops anyone scanning for valid codes by guessing.
         register(InviteRateLimit) {
             rateLimiter(limit = config.inviteLookupsPerMinute, refillPeriod = 1.minutes)
+            requestKey { call -> call.principal<JWTPrincipal>()?.payload?.subject ?: call.request.origin.remoteAddress }
+        }
+        // Commenting, per account: anyone can comment on a public post, so this slows spam.
+        register(CommentRateLimit) {
+            rateLimiter(limit = config.commentsPerMinute, refillPeriod = 1.minutes)
             requestKey { call -> call.principal<JWTPrincipal>()?.payload?.subject ?: call.request.origin.remoteAddress }
         }
     }

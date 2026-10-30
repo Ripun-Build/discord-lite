@@ -20,6 +20,7 @@ data class UserRow(
     val bio: String,
     val passwordHash: String,
     val dmPolicy: DmPolicy,
+    val isPrivate: Boolean,
 )
 
 /** The signed-in user's own profile. The only response that ever contains an email address. */
@@ -31,9 +32,10 @@ data class Me(
     val displayName: String,
     val bio: String,
     val dmPolicy: DmPolicy,
+    val isPrivate: Boolean,
 )
 
-fun UserRow.toMe() = Me(id.toString(), email, username, displayName, bio, dmPolicy)
+fun UserRow.toMe() = Me(id.toString(), email, username, displayName, bio, dmPolicy, isPrivate)
 
 object UserRules {
     val EMAIL = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$")
@@ -42,7 +44,7 @@ object UserRules {
     const val BIO_MAX = 160
 }
 
-private const val USER_COLUMNS = "id, email, email_verified, username, display_name, bio, password_hash, dm_policy"
+private const val USER_COLUMNS = "id, email, email_verified, username, display_name, bio, password_hash, dm_policy, is_private"
 
 private fun ResultSet.toUser() = UserRow(
     id = uuid("id"),
@@ -53,6 +55,7 @@ private fun ResultSet.toUser() = UserRow(
     bio = getString("bio"),
     passwordHash = getString("password_hash"),
     dmPolicy = DmPolicy.valueOf(getString("dm_policy")),
+    isPrivate = getBoolean("is_private"),
 )
 
 fun Connection.findUserByEmail(email: String): UserRow? =

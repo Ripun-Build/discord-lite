@@ -22,6 +22,8 @@ import com.discordlite.server.media.MediaStore
 import com.discordlite.server.media.S3MediaStore
 import com.discordlite.server.servers.ServerService
 import com.discordlite.server.stories.StoryService
+import com.discordlite.server.posts.PostService
+import com.discordlite.server.follows.FollowService
 import com.discordlite.server.social.SocialService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -68,6 +70,8 @@ class AppDeps(val config: AppConfig, dataSource: DataSource, mailer: Mailer, pus
         InMemoryMediaStore().also { LoggerFactory.getLogger("Media").warn("No S3 keys: photos are kept in memory and lost on restart") }
     }
     val stories = StoryService(db, media)
+    val follows = FollowService(db, social)
+    val posts = PostService(db, media)
 }
 
 fun Application.module() {

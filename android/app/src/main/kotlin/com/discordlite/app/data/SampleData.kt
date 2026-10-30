@@ -49,17 +49,6 @@ data class Server(
     val invite get() = InvitePreview(inviteCode, name, online, members)
 }
 
-data class Post(
-    val id: String,
-    val author: User,
-    val game: String,
-    val caption: String,
-    val likes: Int,
-    val comments: Int,
-    val time: String,
-    val slides: Int,
-)
-
 data class Story(val user: User, val seen: Boolean)
 
 object SampleData {
@@ -173,14 +162,4 @@ object SampleData {
         Story(aarav, seen = true),
         Story(lina, seen = true),
     )
-
-    val posts = listOf(
-        Post("p1", maya, "Valorant", "ace on haven with the new agent. I'm never recovering from this", 1284, 96, "2h", slides = 3),
-        Post("p2", zoe, "Minecraft", "finished the cherry blossom village 🌸 took 3 weekends", 842, 41, "5h", slides = 2),
-        Post("p3", kenji, "Elden Ring", "finally beat Malenia. 87 tries.", 2310, 203, "1d", slides = 1),
-        Post("p4", rohan, "Apex Legends", "squad wipe in 12 seconds. wraith mains rise", 655, 27, "1d", slides = 1),
-        Post("p5", lina, "Genshin Impact", "new team comp is so pretty", 433, 18, "2d", slides = 2),
-    )
-
-    val myPosts = listOf("Valorant", "Minecraft", "Apex Legends", "Elden Ring", "Valorant", "Fortnite", "Minecraft", "Genshin Impact", "Valorant")
 }

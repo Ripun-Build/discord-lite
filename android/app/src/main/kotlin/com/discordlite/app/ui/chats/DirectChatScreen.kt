@@ -60,6 +60,8 @@ import com.discordlite.app.chat.ChatMessage
 import com.discordlite.app.chat.GatewayClient
 import com.discordlite.app.chat.MessageStatus
 import com.discordlite.app.data.LocalAppContainer
+import com.discordlite.app.posts.PostLinks
+import com.discordlite.app.ui.posts.PostLinkCard
 import com.discordlite.app.ui.servers.InviteCards
 import com.discordlite.designsystem.component.Avatar
 import com.discordlite.designsystem.component.DetailTopBar
@@ -308,20 +310,24 @@ private fun BubbleBody(
                 )
             }
         }
-        Box(
-            Modifier
-                .widthIn(max = 290.dp)
-                .pressable(pressedScale = 0.97f, onClick = { if (failed) onRetry() })
-                .clip(shape)
-                .background(
-                    if (mine) Brush.linearGradient(listOf(colors.accentGradient[0], colors.accentGradient[1])) else SolidColor(colors.bubbleOther),
-                    alpha = if (message.status == MessageStatus.SENDING) 0.75f else 1f,
-                )
-                .padding(horizontal = 14.dp, vertical = 9.dp),
-        ) {
-            Text(message.body, style = DlTheme.type.body, color = if (mine) Color.White else colors.textPrimary)
+        // A shared post is just its card, unless it needs the bubble to retry.
+        if (failed || !PostLinks.isOnlyLink(message.body)) {
+            Box(
+                Modifier
+                    .widthIn(max = 290.dp)
+                    .pressable(pressedScale = 0.97f, onClick = { if (failed) onRetry() })
+                    .clip(shape)
+                    .background(
+                        if (mine) Brush.linearGradient(listOf(colors.accentGradient[0], colors.accentGradient[1])) else SolidColor(colors.bubbleOther),
+                        alpha = if (message.status == MessageStatus.SENDING) 0.75f else 1f,
+                    )
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+            ) {
+                Text(message.body, style = DlTheme.type.body, color = if (mine) Color.White else colors.textPrimary)
+            }
         }
         InviteCards(message.body, Modifier.padding(top = 6.dp))
+        PostLinkCard(message.body, Modifier.padding(top = 6.dp))
         if (lastOfGroup || showStatus) {
             val time = timeLabel(message.sentAt)
             val (label, tint) = when {

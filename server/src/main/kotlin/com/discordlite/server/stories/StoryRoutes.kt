@@ -2,6 +2,7 @@ package com.discordlite.server.stories
 
 import com.discordlite.server.common.badRequest
 import com.discordlite.server.common.notFound
+import com.discordlite.server.media.ImageCleaner
 import com.discordlite.server.plugins.userId
 import io.ktor.http.CacheControl
 import io.ktor.http.ContentType
@@ -32,7 +33,7 @@ fun Route.storyRoutes(stories: StoryService) {
         post {
             var image: ByteArray? = null
             var caption: String? = null
-            call.receiveMultipart(formFieldLimit = StoryService.MAX_UPLOAD_BYTES + 1024L).forEachPart { part ->
+            call.receiveMultipart(formFieldLimit = ImageCleaner.MAX_UPLOAD_BYTES + 1024L).forEachPart { part ->
                 when {
                     part is PartData.FileItem && part.name == "image" -> image = part.provider().readRemaining().readByteArray()
                     part is PartData.FormItem && part.name == "caption" -> caption = part.value

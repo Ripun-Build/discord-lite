@@ -39,7 +39,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,7 +51,6 @@ import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Mail
 import androidx.compose.material.icons.rounded.NotificationsOff
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.ScreenshotMonitor
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Settings
@@ -60,6 +59,8 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import com.discordlite.app.ui.common.ErrorBanner
 import com.discordlite.app.security.findFragmentActivity
 import com.discordlite.app.security.AppLock
@@ -85,7 +86,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.discordlite.app.data.SampleData
-import com.discordlite.app.ui.common.ArtPlaceholder
+import com.discordlite.app.data.remote.UserProfileResponse
+import com.discordlite.app.ui.posts.PostTile
 import com.discordlite.designsystem.component.Avatar
 import com.discordlite.designsystem.component.DetailTopBar
 import com.discordlite.designsystem.component.DlSwitch
@@ -102,15 +104,36 @@ import com.discordlite.designsystem.theme.DlTheme
 import com.discordlite.designsystem.theme.rememberHaptics
 
 @Composable
-fun ProfileScreen(onOpenSettings: () -> Unit, onEditProfile: () -> Unit, onOpenStoryArchive: () -> Unit) {
+fun ProfileScreen(
+    onOpenSettings: () -> Unit,
+    onEditProfile: () -> Unit,
+    onOpenStoryArchive: () -> Unit,
+    onOpenPost: (String) -> Unit,
+    onOpenFollowList: (userId: String, following: Boolean) -> Unit,
+    onOpenFollowRequests: () -> Unit,
+) {
     val colors = DlTheme.colors
     val container = LocalAppContainer.current
+    val repo = container.posts
     val account by container.account.me.collectAsStateWithLifecycle()
-    val friends by container.social.friends.collectAsStateWithLifecycle()
+    val cached by repo.posts.collectAsStateWithLifecycle()
     val displayName = account?.displayName ?: SampleData.me.name
     val username = account?.username ?: SampleData.me.username
     val bio = account?.bio.orEmpty()
+    val myId = account?.id
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var profile by remember { mutableStateOf<UserProfileResponse?>(null) }
+    var mine by remember { mutableStateOf(emptyList<String>()) }
+    var saved by remember { mutableStateOf(emptyList<String>()) }
+
+    LaunchedEffect(myId) {
+        val id = myId ?: return@LaunchedEffect
+        runCatching { repo.profile(id) }.onSuccess { profile = it }
+        runCatching { repo.byUser(id) }.onSuccess { mine = it }
+        runCatching { repo.saved() }.onSuccess { saved = it }
+    }
+    // Deleted or unsaved elsewhere: drop out of the grid straight away.
+    val shown = (if (tab == 0) mine else saved).filter { id -> cached[id]?.let { tab == 0 || it.saved } == true }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
@@ -121,68 +144,53 @@ fun ProfileScreen(onOpenSettings: () -> Unit, onEditProfile: () -> Unit, onOpenS
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column {
-                Box(Modifier.fillMaxWidth().height(190.dp)) {
-                    Box(Modifier.matchParentSize().background(Brush.linearGradient(colors.accentGradient)))
-                    Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to colors.background)))
-                    Row(Modifier.statusBarsPadding().padding(12.dp).align(Alignment.TopEnd), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ProfileHeader(
+                    displayName = displayName,
+                    username = username,
+                    bio = bio,
+                    bioPlaceholder = "Add a bio so friends know what you play.",
+                    badge = if (account?.isPrivate == true) "Private" else null,
+                    postCount = profile?.postCount,
+                    followerCount = profile?.followerCount,
+                    followingCount = profile?.followingCount,
+                    onOpenFollowers = { myId?.let { onOpenFollowList(it, false) } },
+                    onOpenFollowing = { myId?.let { onOpenFollowList(it, true) } },
+                    online = true,
+                    topEnd = {
                         ThemeToggle()
                         IconCircleButton(Icons.Rounded.Share, "Share profile", {}, size = 38.dp)
                         IconCircleButton(Icons.Rounded.History, "Story archive", onOpenStoryArchive, size = 38.dp)
                         IconCircleButton(Icons.Rounded.Settings, "Settings and privacy", onOpenSettings, size = 38.dp)
-                    }
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 18.dp)
-                            .offset(y = 44.dp)
-                            // A background (not a border) so the ring sits behind the presence dot.
-                            .background(colors.background, CircleShape)
-                            .padding(4.dp),
-                    ) { Avatar(displayName, 92.dp, online = true) }
-                }
-                Spacer(Modifier.height(52.dp))
+                    },
+                )
                 Column(Modifier.padding(horizontal = 20.dp)) {
-                    Text(displayName, style = DlTheme.type.title1, color = colors.textPrimary)
-                    Text("@$username", style = DlTheme.type.callout, color = colors.textSecondary)
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        bio.ifBlank { "Add a bio so friends know what you play." },
-                        style = DlTheme.type.callout,
-                        color = if (bio.isBlank()) colors.textTertiary else colors.textPrimary,
-                    )
-                    Spacer(Modifier.height(18.dp))
-                    Row(Modifier.fillMaxWidth()) {
-                        Stat("24", "Posts", Modifier.weight(1f))
-                        Stat(friends.friends.size.toString(), "Friends", Modifier.weight(1f))
-                        Stat("1.2K", "Followers", Modifier.weight(1f))
-                    }
                     Spacer(Modifier.height(18.dp))
                     SecondaryButton("Edit profile", onClick = onEditProfile, modifier = Modifier.fillMaxWidth(), height = 44.dp)
+                    val requests = profile?.requestCount ?: 0
+                    if (requests > 0) {
+                        Spacer(Modifier.height(10.dp))
+                        ProfileAction(if (requests == 1) "1 follow request" else "$requests follow requests", filled = true, Modifier.fillMaxWidth(), onClick = onOpenFollowRequests)
+                    }
                     Spacer(Modifier.height(18.dp))
-                    SegmentedControl(listOf("Posts", "Reels", "Tagged"), tab, { tab = it })
+                    SegmentedControl(listOf("Posts", "Saved"), tab, { tab = it })
                     Spacer(Modifier.height(12.dp))
                 }
             }
         }
-        itemsIndexed(SampleData.myPosts) { i, game ->
-            Box(Modifier.aspectRatio(if (tab == 1) 0.62f else 1f).pressable(pressedScale = 0.96f) {}) {
-                ArtPlaceholder("me-$tab-$i-$game", Modifier.fillMaxSize(), showIcon = false)
-                if (tab == 1) {
-                    Row(Modifier.align(Alignment.BottomStart).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Text("%.1fK".format((i + 3) * 1.3f), style = DlTheme.type.caption, color = Color.White)
-                    }
-                }
+        items(shown, key = { it }) { id ->
+            cached[id]?.let { post -> PostTile(post, onClick = { onOpenPost(id) }) }
+        }
+        if (shown.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    if (tab == 0) "Your posts show up here." else "Posts you save show up here. Only you can see them.",
+                    style = DlTheme.type.callout,
+                    color = colors.textSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 40.dp, start = 32.dp, end = 32.dp),
+                )
             }
         }
-    }
-}
-
-@Composable
-private fun Stat(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(modifier.pressable(pressedScale = 0.95f) {}, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = DlTheme.type.title3, color = DlTheme.colors.textPrimary)
-        Text(label, style = DlTheme.type.footnote, color = DlTheme.colors.textSecondary)
     }
 }
 
@@ -204,6 +212,7 @@ fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
     val scope = rememberCoroutineScope()
     // Shown immediately on tap; saved to the server in the background (reverts if that fails).
     var dmSetting by rememberSaveable(me?.dmPolicy) { mutableIntStateOf(me?.dmPolicy?.ordinal ?: 1) }
+    var isPrivate by rememberSaveable(me?.isPrivate) { mutableStateOf(me?.isPrivate == true) }
     val appSettings = LocalAppSettings.current
     val context = LocalContext.current
     var lockError by rememberSaveable { mutableStateOf<String?>(null) }
@@ -286,6 +295,23 @@ fun SettingsScreen(onBack: () -> Unit, onSignOut: () -> Unit) {
                 }
             }
             item { SectionFooter("People who can't DM you can still send a friend request.") }
+
+            item { SectionHeader("Posts") }
+            item {
+                SectionCard {
+                    Column {
+                        ToggleRow(Icons.Rounded.Lock, Color(0xFF5E5CE6), "Private account", "Approve who can follow you and see your posts", isPrivate) { on ->
+                            isPrivate = on
+                            scope.launch {
+                                runCatching { container.account.updateProfile(isPrivate = on) }
+                                    .onSuccess { container.posts.refreshFeedSoon() }
+                                    .onFailure { isPrivate = !on }
+                            }
+                        }
+                    }
+                }
+            }
+            item { SectionFooter(if (isPrivate) "Only people you approve can see your posts. Friends can always see them." else "Anyone on discord-lite can see your posts and follow you. Stories stay friends-only.") }
 
             item { SectionHeader("Security") }
             item {

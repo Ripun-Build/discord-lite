@@ -8,22 +8,12 @@ import com.discordlite.server.db.exec
 import com.discordlite.server.db.query
 import com.discordlite.server.db.queryOne
 import com.discordlite.server.db.uuid
+import com.discordlite.server.media.ImageCleaner
 import com.discordlite.server.media.MediaStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import java.awt.RenderingHints
-import java.awt.image.BufferedImage
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.sql.Connection
 import java.sql.ResultSet
 import java.util.UUID
-import javax.imageio.IIOImage
-import javax.imageio.ImageIO
-import javax.imageio.ImageWriteParam
-import kotlin.math.max
-import kotlin.math.roundToInt
 
 /** [seen] is whether *you* have seen it; [viewCount] is only filled in on your own stories. */
 @Serializable
@@ -48,22 +38,18 @@ data class StoryAuthorDto(val userId: String, val username: String, val displayN
 /**
  * Stories: a photo (with an optional caption) that your friends can see for 24 hours. After that
  * it stays in your private archive — only you can see it — until you delete it.
- *
- * Every upload is decoded and saved again as a plain JPEG here, whatever the phone sent: that
- * drops any leftover metadata (location, camera), shrinks huge photos, and means nothing but a
- * real picture is ever stored or served.
  */
 class StoryService(private val db: Db, private val media: MediaStore) {
 
     suspend fun post(author: UUID, image: ByteArray, caption: String?): StoryDto {
         val text = caption?.trim()?.ifEmpty { null }
         if (text != null && text.length > MAX_CAPTION) throw badRequest("invalid_caption")
-        if (image.isEmpty() || image.size > MAX_UPLOAD_BYTES) throw badRequest("invalid_image")
+        if (image.isEmpty() || image.size > ImageCleaner.MAX_UPLOAD_BYTES) throw badRequest("invalid_image")
         val recent = db.tx {
             queryOne("SELECT COUNT(*) AS n FROM stories WHERE author_id = ? AND created_at > now() - interval '24 hours'", author) { it.getInt("n") }!!
         }
         if (recent >= MAX_PER_DAY) throw tooMany("too_many_stories")
-        val clean = reencode(image) ?: throw badRequest("invalid_image")
+        val clean = ImageCleaner.clean(image) ?: throw badRequest("invalid_image")
 
         val id = UUID.randomUUID()
         val key = "stories/$id.jpg"
@@ -182,55 +168,10 @@ class StoryService(private val db: Db, private val media: MediaStore) {
         )
     }
 
-    private class CleanImage(val bytes: ByteArray, val width: Int, val height: Int)
-
-    /** Decodes any common image format and writes a fresh, metadata-free JPEG (max 1920 px). */
-    private suspend fun reencode(input: ByteArray): CleanImage? = withContext(Dispatchers.Default) {
-        runCatching {
-            ImageIO.createImageInputStream(ByteArrayInputStream(input)).use { stream ->
-                val reader = ImageIO.getImageReaders(stream).asSequence().firstOrNull() ?: return@runCatching null
-                try {
-                    reader.input = stream
-                    // Check the size before decoding, so a tiny file claiming to be enormous can't eat memory.
-                    val w = reader.getWidth(0)
-                    val h = reader.getHeight(0)
-                    if (w <= 0 || h <= 0 || w.toLong() * h > MAX_PIXELS) return@runCatching null
-                    val source = reader.read(0)
-                    val scale = minOf(1.0, MAX_SIDE.toDouble() / max(w, h))
-                    val outW = max(1, (w * scale).roundToInt())
-                    val outH = max(1, (h * scale).roundToInt())
-                    val out = BufferedImage(outW, outH, BufferedImage.TYPE_INT_RGB)
-                    out.createGraphics().apply {
-                        setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-                        drawImage(source, 0, 0, outW, outH, java.awt.Color.BLACK, null)
-                        dispose()
-                    }
-                    val bytes = ByteArrayOutputStream()
-                    val writer = ImageIO.getImageWritersByFormatName("jpeg").next()
-                    ImageIO.createImageOutputStream(bytes).use { output ->
-                        writer.output = output
-                        val param = writer.defaultWriteParam.apply {
-                            compressionMode = ImageWriteParam.MODE_EXPLICIT
-                            compressionQuality = 0.85f
-                        }
-                        writer.write(null, IIOImage(out, null, null), param)
-                    }
-                    writer.dispose()
-                    CleanImage(bytes.toByteArray(), outW, outH)
-                } finally {
-                    reader.dispose()
-                }
-            }
-        }.getOrNull()
-    }
-
     companion object {
         const val LIFETIME_MS = 24 * 3600_000L
         const val MAX_CAPTION = 200
-        const val MAX_UPLOAD_BYTES = 12 * 1024 * 1024
         const val MAX_PER_DAY = 30
-        const val MAX_SIDE = 1920
-        const val MAX_PIXELS = 50_000_000L
 
         /** Ids of [user]'s friends (pass the user id twice). Blocking someone also unfriends them. */
         private const val FRIENDS_OF = """

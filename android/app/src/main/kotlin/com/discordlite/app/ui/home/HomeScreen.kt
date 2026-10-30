@@ -32,7 +32,10 @@ import com.discordlite.app.data.SampleData
 import com.discordlite.app.ui.chats.ChatsScreen
 import com.discordlite.app.ui.chats.NewChatSheetContent
 import com.discordlite.app.ui.chats.NewGroupSheetContent
+import com.discordlite.app.posts.PostsRepository
 import com.discordlite.app.ui.feed.FeedScreen
+import com.discordlite.app.ui.posts.PostSheetHost
+import com.discordlite.app.ui.posts.rememberPostSheets
 import com.discordlite.app.ui.profile.ProfileScreen
 import com.discordlite.app.ui.servers.AddToServerSheetContent
 import com.discordlite.app.ui.stories.AddStorySheetContent
@@ -82,6 +85,12 @@ fun HomeScreen(
     onOpenStories: (userId: String) -> Unit,
     onComposeStory: (uri: String) -> Unit,
     onOpenStoryArchive: () -> Unit,
+    onOpenUser: (String) -> Unit,
+    onOpenPost: (String) -> Unit,
+    onOpenFollowList: (userId: String, following: Boolean) -> Unit,
+    onOpenFollowRequests: () -> Unit,
+    onSearchPeople: () -> Unit,
+    onComposePost: (uris: List<String>) -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val conversations by LocalAppContainer.current.chat.conversations.collectAsStateWithLifecycle(emptyList())
@@ -92,6 +101,10 @@ fun HomeScreen(
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { onComposeStory(it.toString()) } }
     var captureUri by rememberSaveable { mutableStateOf<String?>(null) }
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved -> if (saved) captureUri?.let(onComposeStory) }
+    val postSheets = rememberPostSheets()
+    val pickPostPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(PostsRepository.MAX_PHOTOS)) { uris ->
+        if (uris.isNotEmpty()) onComposePost(uris.map { it.toString() })
+    }
     // Keep the last sheet's content while it animates away.
     var lastSheet by remember { mutableStateOf<HomeSheet?>(null) }
     if (sheet != null) lastSheet = sheet
@@ -117,14 +130,22 @@ fun HomeScreen(
                         onAddMembers = { sheet = HomeSheet.AddToServer(it) },
                         onInvite = { sheet = HomeSheet.Invite(it) },
                     )
-                    2 -> FeedScreen()
-                    else -> ProfileScreen(onOpenSettings = onOpenSettings, onEditProfile = onEditProfile, onOpenStoryArchive = onOpenStoryArchive)
+                    2 -> FeedScreen(sheets = postSheets, onOpenUser = onOpenUser, onNewPost = { pickPostPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, onSearch = onSearchPeople)
+                    else -> ProfileScreen(
+                        onOpenSettings = onOpenSettings,
+                        onEditProfile = onEditProfile,
+                        onOpenStoryArchive = onOpenStoryArchive,
+                        onOpenPost = onOpenPost,
+                        onOpenFollowList = onOpenFollowList,
+                        onOpenFollowRequests = onOpenFollowRequests,
+                    )
                 }
             }
         }
         CompositionLocalProvider(LocalHazeState provides hazeState) {
             FloatingTabBar(tabItems, tab, { tab = it }, Modifier.align(Alignment.BottomCenter))
         }
+        PostSheetHost(postSheets, onOpenUser)
         SpringSheet(visible = sheet != null, onDismiss = { sheet = null }) {
             when (val s = lastSheet) {
                 HomeSheet.NewChat -> NewChatSheetContent(

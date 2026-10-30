@@ -18,6 +18,7 @@ data class Me(
     val displayName: String,
     val bio: String,
     val dmPolicy: DmPolicy,
+    val isPrivate: Boolean = false,
 )
 
 @Serializable
@@ -48,7 +49,7 @@ data class Friends(
 @Serializable data class LoginBody(val email: String, val password: String)
 @Serializable data class ResetBody(val email: String, val code: String, val newPassword: String)
 @Serializable data class RefreshBody(val refreshToken: String)
-@Serializable data class UpdateMeBody(val displayName: String? = null, val bio: String? = null, val dmPolicy: DmPolicy? = null)
+@Serializable data class UpdateMeBody(val displayName: String? = null, val bio: String? = null, val dmPolicy: DmPolicy? = null, val isPrivate: Boolean? = null)
 @Serializable data class FriendRequestBody(val userId: String)
 @Serializable data class RelationshipResponse(val relationship: Relationship)
 @Serializable data class StatusResponse(val status: String)
@@ -239,3 +240,60 @@ data class StoryResponse(
 
 @Serializable data class StoryAuthorResponse(val userId: String, val username: String, val displayName: String, val stories: List<StoryResponse>, val allSeen: Boolean)
 @Serializable data class StoryViewerResponse(val userId: String, val username: String, val displayName: String, val viewedAt: Long)
+
+// Phase 7: followers and posts.
+
+@Serializable
+enum class FollowState { NONE, REQUESTED, FOLLOWING }
+
+@Serializable data class FollowResponse(val state: FollowState)
+@Serializable data class FollowUserResponse(val id: String, val username: String, val displayName: String, val followState: FollowState)
+
+/** Someone's profile page. [requestCount] (people waiting to follow you) is only set on your own. */
+@Serializable
+data class UserProfileResponse(
+    val id: String,
+    val username: String,
+    val displayName: String,
+    val bio: String,
+    val relationship: Relationship,
+    val isPrivate: Boolean,
+    val followState: FollowState,
+    val followsYou: Boolean,
+    val canSeePosts: Boolean,
+    val postCount: Int,
+    val followerCount: Int,
+    val followingCount: Int,
+    val requestCount: Int? = null,
+)
+
+@Serializable data class PostAuthorResponse(val id: String, val username: String, val displayName: String)
+@Serializable data class PostMediaResponse(val width: Int, val height: Int)
+
+@Serializable
+data class PostResponse(
+    val id: String,
+    val author: PostAuthorResponse,
+    val caption: String? = null,
+    val game: String? = null,
+    val media: List<PostMediaResponse>,
+    val likeCount: Int,
+    val commentCount: Int,
+    val liked: Boolean,
+    val saved: Boolean,
+    val createdAt: Long,
+)
+
+@Serializable data class LikeResponse(val liked: Boolean, val likeCount: Int)
+@Serializable data class NewCommentBody(val body: String, val parentId: String? = null)
+
+/** [parentId] is set on replies, and always points at a top-level comment. */
+@Serializable
+data class CommentResponse(
+    val id: String,
+    val parentId: String? = null,
+    val author: PostAuthorResponse,
+    val body: String,
+    val createdAt: Long,
+    val canDelete: Boolean,
+)

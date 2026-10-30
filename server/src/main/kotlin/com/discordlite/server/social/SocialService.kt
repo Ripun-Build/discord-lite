@@ -8,6 +8,9 @@ import com.discordlite.server.db.exec
 import com.discordlite.server.db.query
 import com.discordlite.server.db.queryOne
 import com.discordlite.server.db.uuid
+import com.discordlite.server.follows.acceptPendingFollows
+import com.discordlite.server.follows.dropFollows
+import com.discordlite.server.follows.followEachOther
 import com.discordlite.server.users.DmPolicy
 import com.discordlite.server.users.Me
 import com.discordlite.server.users.UserRules
@@ -36,7 +39,7 @@ data class PublicUser(
 data class FriendsResponse(val friends: List<PublicUser>, val incoming: List<PublicUser>, val outgoing: List<PublicUser>)
 
 @Serializable
-data class UpdateMeRequest(val displayName: String? = null, val bio: String? = null, val dmPolicy: DmPolicy? = null)
+data class UpdateMeRequest(val displayName: String? = null, val bio: String? = null, val dmPolicy: DmPolicy? = null, val isPrivate: Boolean? = null)
 
 @Serializable
 data class FriendRequestBody(val userId: String)
@@ -62,11 +65,13 @@ class SocialService(private val db: Db) {
         return db.tx {
             exec(
                 """
-                UPDATE users SET display_name = COALESCE(?, display_name), bio = COALESCE(?, bio), dm_policy = COALESCE(?, dm_policy)
+                UPDATE users SET display_name = COALESCE(?, display_name), bio = COALESCE(?, bio), dm_policy = COALESCE(?, dm_policy),
+                                 is_private = COALESCE(?, is_private)
                 WHERE id = ?
                 """.trimIndent(),
-                displayName, bio, request.dmPolicy?.name, userId,
+                displayName, bio, request.dmPolicy?.name, request.isPrivate, userId,
             )
+            if (request.isPrivate == false) acceptPendingFollows(userId) // going public lets everyone waiting in
             findUserById(userId)?.toMe()
         } ?: throw unauthorized()
     }
@@ -148,6 +153,7 @@ class SocialService(private val db: Db) {
             pair.requester == viewer -> Relationship.OUTGOING
             else -> {
                 exec("UPDATE friendships SET status = 'ACCEPTED' WHERE requester_id = ? AND addressee_id = ?", target, viewer)
+                followEachOther(viewer, target)
                 Relationship.FRIEND
             }
         }
@@ -159,6 +165,7 @@ class SocialService(private val db: Db) {
             requester, viewer,
         )
         if (updated == 0) throw notFound("request_not_found")
+        followEachOther(viewer, requester)
     }
 
     /** Declines an incoming request or cancels an outgoing one. */
@@ -168,14 +175,16 @@ class SocialService(private val db: Db) {
 
     suspend fun unfriend(viewer: UUID, other: UUID) = db.tx {
         if (deletePair(viewer, other, status = "ACCEPTED") == 0) throw notFound("not_friends")
+        dropFollows(viewer, other)
     }
 
-    /** Blocks a user and removes any friendship or pending request between you. */
+    /** Blocks a user and removes any friendship, follow or pending request between you. */
     suspend fun block(viewer: UUID, target: UUID) = db.tx {
         if (viewer == target) throw badRequest("cannot_block_self")
         queryOne("SELECT 1 FROM users WHERE id = ?", target) { true } ?: throw notFound("user_not_found")
         exec("INSERT INTO blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING", viewer, target)
         deletePair(viewer, target, status = null)
+        dropFollows(viewer, target)
     }
 
     suspend fun unblock(viewer: UUID, target: UUID) = db.tx {

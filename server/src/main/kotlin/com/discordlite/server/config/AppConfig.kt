@@ -18,6 +18,7 @@ data class AppConfig(
     val refreshTokenTtl: Duration = 30.days,
     val authRequestsPerMinute: Int = 20,
     val inviteLookupsPerMinute: Int = 30,
+    val commentsPerMinute: Int = 30,
     /** Path to a Firebase service-account key. Null = push notifications are off. */
     val firebaseServiceAccount: String? = null,
     /** S3-compatible storage for photos (SeaweedFS locally). Null keys = keep files in memory. */

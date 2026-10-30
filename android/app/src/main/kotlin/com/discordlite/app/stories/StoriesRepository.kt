@@ -3,7 +3,6 @@ package com.discordlite.app.stories
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.ImageDecoder
 import android.net.Uri
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
@@ -14,6 +13,7 @@ import com.discordlite.app.data.remote.StoryResponse
 import com.discordlite.app.data.remote.StoryViewerResponse
 import com.discordlite.app.data.remote.apiCall
 import com.discordlite.app.data.remote.apiCallUnit
+import com.discordlite.app.media.PhotoPrep
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,8 +23,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.ByteArrayOutputStream
-import kotlin.math.max
 
 /**
  * Stories: photos your friends can see for 24 hours (then only you, in your archive). Not end-to-end
@@ -49,7 +47,7 @@ class StoriesRepository(private val context: Context, private val api: DiscordLi
 
     /** Prepares the photo on the phone, uploads it, and puts it at the front of your stories. */
     suspend fun post(uri: Uri, caption: String) {
-        val jpeg = withContext(Dispatchers.Default) { prepare(uri) }
+        val jpeg = withContext(Dispatchers.Default) { PhotoPrep.prepare(context, uri) }
         val part = MultipartBody.Part.createFormData("image", "story.jpg", jpeg.toRequestBody("image/jpeg".toMediaType()))
         val text = caption.trim().takeIf { it.isNotEmpty() }?.toRequestBody("text/plain".toMediaType())
         apiCall { api.postStory(part, text) }
@@ -91,27 +89,5 @@ class StoriesRepository(private val context: Context, private val api: DiscordLi
     fun clear() {
         _feed.value = emptyList()
         images.evictAll()
-    }
-
-    /**
-     * Turns the picked photo upright, scales it to at most 1920 px and re-saves it as JPEG.
-     * Writing a fresh JPEG from pixels leaves the original's metadata (location, camera) behind.
-     * (The server re-saves it again, so this is belt and braces — and a much smaller upload.)
-     */
-    private fun prepare(uri: Uri): ByteArray {
-        val source = ImageDecoder.createSource(context.contentResolver, uri)
-        val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-            val longest = max(info.size.width, info.size.height)
-            if (longest > MAX_SIDE) {
-                val scale = MAX_SIDE.toFloat() / longest
-                decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
-            }
-            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-        }
-        return ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
-    }
-
-    private companion object {
-        const val MAX_SIDE = 1920
     }
 }

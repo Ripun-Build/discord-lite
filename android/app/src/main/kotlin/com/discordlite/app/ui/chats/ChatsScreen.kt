@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.rounded.PersonAdd
 import com.discordlite.app.chat.Conversation
+import com.discordlite.app.posts.PostLinks
 import androidx.compose.foundation.layout.offset
 import com.discordlite.app.data.LocalAppContainer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -153,7 +154,7 @@ private fun ConversationRow(conversation: Conversation, modifier: Modifier = Mod
                 Icon(Icons.Rounded.Lock, null, tint = colors.textTertiary, modifier = Modifier.size(12.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    conversation.lastMessage.ifEmpty { if (conversation.isGroup) "New group — say hi" else "Say hi — messages are end-to-end encrypted" },
+                    PostLinks.preview(conversation.lastMessage).ifEmpty { if (conversation.isGroup) "New group — say hi" else "Say hi — messages are end-to-end encrypted" },
                     style = DlTheme.type.subheadline,
                     color = if (unread) colors.textPrimary else colors.textSecondary,
                     maxLines = 1,
