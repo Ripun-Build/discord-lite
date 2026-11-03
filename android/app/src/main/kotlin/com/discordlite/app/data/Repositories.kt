@@ -1,6 +1,7 @@
 package com.discordlite.app.data
 
 import android.content.Context
+import android.os.Build
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -139,11 +140,21 @@ class SocialRepository(private val api: DiscordLiteApi) {
     }
 }
 
+/**
+ * 10.0.2.2 only exists inside the emulator. A real phone plugged in over USB reaches the Mac at
+ * 127.0.0.1 instead, once `adb reverse tcp:8080 tcp:8080` has been run.
+ */
+private val serverUrl: String
+    get() {
+        val emulator = Build.FINGERPRINT.contains("emu") || Build.HARDWARE == "ranchu"
+        return if (emulator) BuildConfig.API_BASE_URL else BuildConfig.API_BASE_URL.replace("10.0.2.2", "127.0.0.1")
+    }
+
 /** App-wide singletons. Created once in [com.discordlite.app.DiscordLiteApp]. */
 class AppContainer(context: Context) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val tokenStore = TokenStore(context)
-    private val clients = ApiClient.create(BuildConfig.API_BASE_URL, tokenStore)
+    private val clients = ApiClient.create(serverUrl, tokenStore)
     private val api = clients.api
     val account = AccountRepository(api, tokenStore)
     val settings = AppSettings(context)
@@ -157,7 +168,7 @@ class AppContainer(context: Context) {
     val groups = GroupChats(api, signalStore, local, chat, settings, scope, selfId).also { chat.groups = it }
     val gateway = GatewayClient(
         clients.http,
-        BuildConfig.API_BASE_URL,
+        serverUrl,
         scope,
         onEnvelope = { chat.receive(it) },
         onReady = {

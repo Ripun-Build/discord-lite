@@ -128,7 +128,13 @@ Open `android/` in Android Studio, or use the command line (needs a running emul
 cd android && ./gradlew :app:installDebug
 ```
 
-The emulator reaches your local server at `http://10.0.2.2:8080`. On a real phone on the same Wi-Fi, build with:
+The emulator reaches your local server at `http://10.0.2.2:8080`. A real phone plugged in over USB reaches it through a USB tunnel, which every debug build opens for you. If you unplug the phone and plug it back in without building again, open the tunnel yourself:
+
+```bash
+adb reverse tcp:8080 tcp:8080
+```
+
+Or, on a real phone on the same Wi-Fi, build with:
 
 ```bash
 ./gradlew :app:installDebug -PapiBaseUrl=http://<your-mac-ip>:8080/

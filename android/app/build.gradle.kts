@@ -64,6 +64,31 @@ android {
     }
 }
 
+// A real phone plugged in over USB reaches the dev server at its own 127.0.0.1:8080, which only
+// works once adb forwards that port to this Mac. Do it after every debug build, so pressing Run in
+// Android Studio is enough. The emulator uses 10.0.2.2 and doesn't need it.
+val usbTunnel = tasks.register("usbTunnel") {
+    val adb = androidComponents.sdkComponents.adb
+    doLast {
+        val exe = adb.get().asFile.absolutePath
+        val phones = runCatching {
+            ProcessBuilder(exe, "devices").start().inputStream.bufferedReader().readLines()
+                .mapNotNull { line -> line.split('\t').takeIf { it.size == 2 && it[1] == "device" }?.get(0) }
+                .filterNot { it.startsWith("emulator-") }
+        }.getOrDefault(emptyList())
+        phones.forEach { serial ->
+            val ok = runCatching {
+                ProcessBuilder(exe, "-s", serial, "reverse", "tcp:8080", "tcp:8080")
+                    .redirectErrorStream(true).start().waitFor() == 0
+            }.getOrDefault(false)
+            logger.lifecycle(if (ok) "USB tunnel ready on $serial" else "Couldn't open the USB tunnel on $serial")
+        }
+    }
+}
+tasks.configureEach {
+    if (name == "assembleDebug" || name == "installDebug") finalizedBy(usbTunnel)
+}
+
 dependencies {
     implementation(project(":core:designsystem"))
 
